@@ -1,6 +1,7 @@
 import json
 import asyncio
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
@@ -13,6 +14,15 @@ from dotenv import load_dotenv
 from db import get_supabase
 from lib.context_assembler import VALID_AGENTS
 from lib.repository import SupabaseRepository
+from lib.marketing_calendar import (
+    calculate_resource_commitment,
+    check_platform_overreach,
+    derive_literacy_level,
+    generate_calendar_skeleton,
+    generate_day_detail,
+)
+from lib.marketing_calendar_repository import MarketingCalendarRepository
+from lib.narration import narrate_step
 from lib.switchboard import (
     handle_direct_agent_message,
     handle_squad_owner_message,
@@ -50,6 +60,23 @@ class AuthContext(BaseModel):
     user_id: str
 
 
+class MarketingCalendarInterviewRequest(BaseModel):
+    org_id: str
+    target_audience: str
+    tone: list[str]
+    core_offer: str
+    platforms: list[str]
+    hours_per_week: float
+    duration_days: int = 14
+    has_tracked_metrics_before: bool
+    current_process: str
+    overrode_platform_limit: bool = False
+
+
+class MarketingCalendarActionRequest(BaseModel):
+    org_id: str
+
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
@@ -73,6 +100,10 @@ app.add_middleware(
 
 def get_switchboard_repo() -> SupabaseRepository:
     return SupabaseRepository(get_supabase())
+
+
+def get_marketing_calendar_repo() -> MarketingCalendarRepository:
+    return MarketingCalendarRepository(get_supabase())
 
 
 def get_default_org_id() -> str:
@@ -303,6 +334,36 @@ def _update_onboarding_status(owner_user_id: str, updates: dict[str, Any]) -> di
     return result.data[0]
 
 
+def _calendar_day(calendar: dict[str, Any], day_number: int) -> dict[str, Any]:
+    for day in calendar.get("days") or []:
+        if int(day.get("day_number", 0)) == day_number:
+            return day
+    raise KeyError(f"Calendar day {day_number} not found")
+
+
+def _video_url_from_draft(draft: dict[str, Any]) -> str | None:
+    content = str(draft.get("draft_content") or "")
+    match = re.search(r"Preview URL:\s*(\S+)", content)
+    return match.group(1) if match else None
+
+
+def _is_missing_calendar_migration(error: Exception) -> bool:
+    message = str(error)
+    return "marketing_calendars" in message and ("PGRST" in message or "relation" in message)
+
+
+def _sync_calendar_hitl(draft_id: str, action: str) -> None:
+    try:
+        updates: dict[str, Any] = {
+            "status": "failed" if action == "reject" else "completed",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        get_marketing_calendar_repo().update_day_by_draft(draft_id, updates)
+    except Exception as error:
+        if not _is_missing_calendar_migration(error):
+            raise
+
+
 # ---------------------------------------------------------------------------
 # Agent Switchboard + Squad Chat
 # ---------------------------------------------------------------------------
@@ -381,6 +442,255 @@ async def complete_stub_payment(
         if _is_missing_onboarding_migration(e):
             _raise_onboarding_migration_error()
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Managed Marketing Calendar
+# ---------------------------------------------------------------------------
+
+@app.get("/api/marketing-calendar/{org_id}")
+async def get_marketing_calendar(
+    org_id: str,
+    auth: AuthContext = Depends(require_authenticated_user),
+):
+    _assert_user_owns_org(auth.user_id, org_id)
+    try:
+        return {"calendar": get_marketing_calendar_repo().get_current(org_id)}
+    except Exception as error:
+        if _is_missing_calendar_migration(error):
+            raise HTTPException(
+                status_code=503,
+                detail="Managed calendar migration is pending. Run migrations/005_managed_marketing_calendar.sql in Supabase.",
+            )
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.post("/api/marketing-calendar/interview")
+async def complete_marketing_calendar_interview(
+    request: MarketingCalendarInterviewRequest,
+    auth: AuthContext = Depends(require_authenticated_user),
+):
+    _assert_user_owns_org(auth.user_id, request.org_id)
+    if request.duration_days not in (14, 30):
+        raise HTTPException(status_code=400, detail="duration_days must be 14 or 30")
+    if not request.platforms:
+        raise HTTPException(status_code=400, detail="Select at least one platform")
+    if not request.target_audience.strip() or not request.core_offer.strip() or not request.tone:
+        raise HTTPException(status_code=400, detail="Target audience, offer, and tone are required")
+
+    signals = {
+        "platforms_requested": len(request.platforms),
+        "selected_platforms": request.platforms,
+        "overrode_platform_limit": request.overrode_platform_limit,
+        "has_tracked_metrics_before": request.has_tracked_metrics_before,
+        "current_process": request.current_process,
+    }
+    literacy_level = derive_literacy_level(signals)
+    constraint = check_platform_overreach(request.platforms, literacy_level)
+    if constraint and not request.overrode_platform_limit:
+        raise HTTPException(status_code=409, detail=constraint)
+
+    try:
+        resource = calculate_resource_commitment(request.hours_per_week, request.duration_days)
+        repo = get_marketing_calendar_repo()
+        passport = repo.save_interview(
+            org_id=request.org_id,
+            target_audience=request.target_audience.strip(),
+            tone=request.tone,
+            core_offer=request.core_offer.strip(),
+            platforms=request.platforms,
+            literacy_level=literacy_level,
+            signals=signals,
+        )
+        switchboard_repo = get_switchboard_repo()
+        run_id = await switchboard_repo.create_agent_run(
+            request.org_id,
+            "milo",
+            "owner",
+            f"Build a {request.duration_days}-day managed marketing calendar",
+        )
+        try:
+            async with narrate_step(
+                repo=switchboard_repo,
+                org_id=request.org_id,
+                agent_slug="milo",
+                run_id=run_id,
+                step_label=f"Building {request.duration_days}-day calendar",
+                completed_detail=f"{request.duration_days} themes planned",
+            ):
+                days = await generate_calendar_skeleton(
+                    passport=passport,
+                    duration_days=request.duration_days,
+                    platforms=request.platforms,
+                    target_video_count=resource["target_video_count"],
+                )
+            await switchboard_repo.update_agent_run(
+                run_id,
+                {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()},
+            )
+        except Exception:
+            await switchboard_repo.update_agent_run(
+                run_id,
+                {"status": "failed", "completed_at": datetime.now(timezone.utc).isoformat()},
+            )
+            raise
+        calendar = repo.create(
+            org_id=request.org_id,
+            duration_days=request.duration_days,
+            platforms=request.platforms,
+            hours_per_week=resource["hours_per_week"],
+            target_video_count=resource["target_video_count"],
+            days=days,
+        )
+        return {
+            "calendar": calendar,
+            "literacy_level": literacy_level,
+            "literacy_signals": signals,
+            "resource_commitment": resource,
+            "platform_constraint": constraint,
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        if _is_missing_calendar_migration(error):
+            raise HTTPException(
+                status_code=503,
+                detail="Managed calendar migration is pending. Run migrations/005_managed_marketing_calendar.sql in Supabase.",
+            )
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.post("/api/marketing-calendar/{calendar_id}/days/{day_number}/detail")
+async def generate_marketing_calendar_day_detail(
+    calendar_id: str,
+    day_number: int,
+    request: MarketingCalendarActionRequest,
+    auth: AuthContext = Depends(require_authenticated_user),
+):
+    _assert_user_owns_org(auth.user_id, request.org_id)
+    repo = get_marketing_calendar_repo()
+    try:
+        calendar = repo.get_by_id(calendar_id)
+        if not calendar:
+            raise HTTPException(status_code=404, detail="Marketing calendar not found")
+        if calendar["org_id"] != request.org_id:
+            raise HTTPException(status_code=403, detail="Calendar does not belong to this org")
+        day = _calendar_day(calendar, day_number)
+        if day.get("script"):
+            return {"calendar": calendar, "day": day}
+        passport = repo.get_passport(request.org_id)
+        if not passport:
+            raise HTTPException(status_code=404, detail="Brand Passport not found")
+        switchboard_repo = get_switchboard_repo()
+        run_id = await switchboard_repo.create_agent_run(
+            request.org_id,
+            "milo",
+            "owner",
+            f"Write calendar day {day_number}: {day['theme']}",
+        )
+        try:
+            async with narrate_step(
+                repo=switchboard_repo,
+                org_id=request.org_id,
+                agent_slug="milo",
+                run_id=run_id,
+                step_label=f"Writing day {day_number} script",
+                completed_detail=f"theme matched: {day['theme']}",
+            ):
+                detail = await generate_day_detail(
+                    passport=passport,
+                    day=day,
+                    platforms=calendar["platforms"],
+                )
+            await switchboard_repo.update_agent_run(
+                run_id,
+                {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()},
+            )
+        except Exception:
+            await switchboard_repo.update_agent_run(
+                run_id,
+                {"status": "failed", "completed_at": datetime.now(timezone.utc).isoformat()},
+            )
+            raise
+        updated = repo.update_day(
+            calendar,
+            day_number,
+            {"script": detail["script"], "status": "draft", "milo_run_id": run_id},
+        )
+        return {"calendar": updated, "day": _calendar_day(updated, day_number)}
+    except HTTPException:
+        raise
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.post("/api/marketing-calendar/{calendar_id}/days/{day_number}/approve")
+async def approve_marketing_calendar_day(
+    calendar_id: str,
+    day_number: int,
+    request: MarketingCalendarActionRequest,
+    auth: AuthContext = Depends(require_authenticated_user),
+):
+    _assert_user_owns_org(auth.user_id, request.org_id)
+    repo = get_marketing_calendar_repo()
+    calendar = repo.get_by_id(calendar_id)
+    if not calendar:
+        raise HTTPException(status_code=404, detail="Marketing calendar not found")
+    if calendar["org_id"] != request.org_id:
+        raise HTTPException(status_code=403, detail="Calendar does not belong to this org")
+    day = _calendar_day(calendar, day_number)
+    script = str(day.get("script") or "").strip()
+    if not script:
+        raise HTTPException(status_code=409, detail="Generate this day's script before approving it")
+
+    repo.update_day(
+        calendar,
+        day_number,
+        {
+            "status": "rendering",
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "render_error": None,
+        },
+    )
+    try:
+        result = await handle_direct_agent_message(
+            org_id=request.org_id,
+            agent_slug="vea",
+            text=(
+                f"Render calendar day {day_number}: {day['theme']}. "
+                f"Use this approved script as the source: {script}"
+            ),
+            repo=get_switchboard_repo(),
+        )
+        draft = repo.find_render_for_run(result["run_id"])
+        if not draft:
+            raise RuntimeError("Vea completed without creating a review draft")
+        video_url = _video_url_from_draft(draft)
+        if not video_url:
+            raise RuntimeError("Vea review draft did not contain a video URL")
+        current = repo.get_by_id(calendar_id)
+        updated = repo.update_day(
+            current,
+            day_number,
+            {
+                "status": "awaiting_hitl",
+                "video_url": video_url,
+                "hitl_draft_id": draft["id"],
+                "agent_run_id": result["run_id"],
+            },
+        )
+        return {"calendar": updated, "day": _calendar_day(updated, day_number), "draft": draft}
+    except Exception as error:
+        current = repo.get_by_id(calendar_id)
+        if current:
+            repo.update_day(
+                current,
+                day_number,
+                {"status": "failed", "render_error": str(error)},
+            )
+        raise HTTPException(status_code=500, detail=str(error))
 
 @app.post("/api/agent/{agent_slug}/message")
 async def agent_message(
@@ -492,11 +802,13 @@ def _get_draft_org_id(draft_id: str) -> str:
 async def hitl_approve(draft_id: str, auth: AuthContext = Depends(require_authenticated_user)):
     try:
         _assert_user_owns_org(auth.user_id, _get_draft_org_id(draft_id))
-        return await resolve_hitl(
+        result = await resolve_hitl(
             draft_id=draft_id,
             action="approve",
             repo=get_switchboard_repo(),
         )
+        _sync_calendar_hitl(draft_id, "approve")
+        return result
     except HTTPException:
         raise
     except KeyError:
@@ -507,11 +819,13 @@ async def hitl_approve(draft_id: str, auth: AuthContext = Depends(require_authen
 async def hitl_reject(draft_id: str, auth: AuthContext = Depends(require_authenticated_user)):
     try:
         _assert_user_owns_org(auth.user_id, _get_draft_org_id(draft_id))
-        return await resolve_hitl(
+        result = await resolve_hitl(
             draft_id=draft_id,
             action="reject",
             repo=get_switchboard_repo(),
         )
+        _sync_calendar_hitl(draft_id, "reject")
+        return result
     except HTTPException:
         raise
     except KeyError:
@@ -526,12 +840,14 @@ async def hitl_edit(
 ):
     try:
         _assert_user_owns_org(auth.user_id, _get_draft_org_id(draft_id))
-        return await resolve_hitl(
+        result = await resolve_hitl(
             draft_id=draft_id,
             action="edit",
             repo=get_switchboard_repo(),
             edited_content=request.final_content,
         )
+        _sync_calendar_hitl(draft_id, "edit")
+        return result
     except HTTPException:
         raise
     except KeyError:

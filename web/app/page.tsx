@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -31,6 +31,7 @@ import {
   resolveHitlDraft,
   type AgentRunStepRow,
 } from "@/lib/api/workspace";
+import ManagedMarketingCalendar from "@/components/calendar/ManagedMarketingCalendar";
 
 interface LedgerEvent {
   id: string;
@@ -109,8 +110,14 @@ export default function DashboardPage() {
   const [editDrafts, setEditDrafts] = useState<Record<string, string>>({});
   const [ledger, setLedger] = useState<LedgerEvent[]>([]);
   const [stats, setStats] = useState<DashboardStat[]>(() => getDashboardStats());
+  const [calendarState, setCalendarState] = useState<"loading" | "setup" | "ready" | "error">("loading");
+  const handleCalendarState = useCallback(
+    (nextState: "loading" | "setup" | "ready" | "error") => setCalendarState(nextState),
+    [],
+  );
 
   useEffect(() => {
+    if (calendarState !== "ready") return;
     void fetchDashboardStats().then(setStats).catch(() => undefined);
 
     let source: EventSource | null = null;
@@ -159,7 +166,7 @@ export default function DashboardPage() {
       cancelled = true;
       source?.close();
     };
-  }, []);
+  }, [calendarState]);
 
   async function resolve(id: string, action: "approve" | "reject" | "edit", finalContent?: string) {
     await resolveHitlDraft(id, action, finalContent);
@@ -174,7 +181,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-white font-workspace-sans">
+    <div className="flex h-full flex-col overflow-y-auto bg-white font-workspace-sans">
       <header className="flex h-16 shrink-0 items-center justify-between border-b border-[#e5e5e5] bg-white px-4 pl-14 md:pl-8 md:px-10">
         <div className="flex items-baseline gap-3">
           <h1 className="font-workspace-display text-[22px] font-extrabold tracking-[-0.02em] text-[#111111]">
@@ -195,7 +202,9 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto bg-white">
+      <ManagedMarketingCalendar onStateChange={handleCalendarState} />
+
+      {calendarState === "ready" ? <div className="bg-white">
         <div className="mx-auto max-w-[1240px] px-6 py-8 md:px-10 md:py-12">
           <Link
             href="/connect-channels"
@@ -432,7 +441,7 @@ export default function DashboardPage() {
           </section>
           </div>
         </div>
-      </div>
+      </div> : null}
     </div>
   );
 }

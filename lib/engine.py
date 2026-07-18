@@ -10,6 +10,7 @@ async def call_engine(
     system_prompt: str,
     user_input: str,
     tools: list[dict[str, Any]] | None = None,
+    max_tokens: int = 400,
 ) -> str:
     """Single stateless Groq completion call.
 
@@ -28,7 +29,7 @@ async def call_engine(
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "max_tokens": 400,
+        "max_tokens": max_tokens,
         "temperature": float(os.getenv("GROQ_TEMPERATURE", "0.4")),
     }
     if tools:
