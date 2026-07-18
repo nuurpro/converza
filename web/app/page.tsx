@@ -207,7 +207,7 @@ export default function DashboardPage() {
       {calendarState === "ready" ? <div className="bg-white">
         <div className="mx-auto max-w-[1240px] px-6 py-8 md:px-10 md:py-12">
           <Link
-            href="/connect-channels"
+            href="/settings/channels"
             className="mb-6 flex flex-col gap-3 rounded-2xl border border-[#e5e5e5] bg-[#fafafa] p-4 transition-colors hover:bg-white sm:flex-row sm:items-center sm:justify-between"
           >
             <span className="flex items-center gap-3">

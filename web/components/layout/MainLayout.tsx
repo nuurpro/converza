@@ -6,6 +6,7 @@ import { Menu } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { fetchOnboardingState } from "@/lib/api/onboarding";
 import { getDashboardGateDestination, isPublicAppRoute } from "@/lib/access";
+import { setCurrentOrgId } from "@/lib/org";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 interface MainLayoutProps {
@@ -43,6 +44,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
         }
 
         const passport = ownerUserId ? await fetchOnboardingState(ownerUserId) : null;
+        if (ownerUserId && passport?.org_id) {
+          setCurrentOrgId(passport.org_id, ownerUserId);
+        }
         const destination = getDashboardGateDestination(ownerUserId, passport);
         if (destination !== "allow") {
           router.replace(destination);

@@ -47,6 +47,78 @@ class _FakeSupabase:
 
 
 class OrgOwnershipTests(unittest.TestCase):
+    def test_missing_org_is_created_before_onboarding_can_write_fk_rows(self):
+        import main
+
+        events = []
+
+        class OrgQuery:
+            def __init__(self):
+                self.mode = "select"
+
+            def select(self, *_args):
+                self.mode = "select"
+                return self
+
+            def eq(self, *_args):
+                return self
+
+            def limit(self, *_args):
+                return self
+
+            def insert(self, payload):
+                self.mode = "insert"
+                self.payload = payload
+                return self
+
+            def execute(self):
+                if self.mode == "insert":
+                    events.append(("insert", self.payload))
+                    return _Result([self.payload])
+                return _Result([])
+
+        class OrgSupabase:
+            def table(self, name):
+                self.asserted_table = name
+                return OrgQuery()
+
+        client = OrgSupabase()
+        with patch.object(main, "get_supabase", return_value=client):
+            main._ensure_org_exists("org-new", "Northstar Books")
+
+        self.assertEqual(client.asserted_table, "orgs")
+        self.assertEqual(events, [("insert", {"id": "org-new", "name": "Northstar Books"})])
+
+    def test_existing_org_is_not_inserted_twice(self):
+        import main
+
+        class ExistingOrgQuery:
+            def select(self, *_args):
+                return self
+
+            def eq(self, *_args):
+                return self
+
+            def limit(self, *_args):
+                return self
+
+            def insert(self, _payload):
+                raise AssertionError("existing org must not be inserted")
+
+            def execute(self):
+                return _Result([{"id": "org-existing"}])
+
+        class ExistingOrgSupabase:
+            def table(self, name):
+                self.asserted_table = name
+                return ExistingOrgQuery()
+
+        client = ExistingOrgSupabase()
+        with patch.object(main, "get_supabase", return_value=client):
+            main._ensure_org_exists("org-existing", "Existing Brand")
+
+        self.assertEqual(client.asserted_table, "orgs")
+
     def test_user_must_own_org_id_before_org_scoped_routes_run(self):
         import main
 
@@ -63,8 +135,12 @@ class OrgOwnershipTests(unittest.TestCase):
             },
         ]
 
-        with patch.object(main, "get_supabase", return_value=_FakeSupabase(rows)):
+        with (
+            patch.object(main, "get_supabase", return_value=_FakeSupabase(rows)),
+            patch.object(main, "_ensure_org_exists") as ensure_org,
+        ):
             main._assert_user_owns_org("user-owned", "org-owned")
+            ensure_org.assert_called_once_with("org-owned", "Untitled brand")
 
             with self.assertRaises(HTTPException) as mismatch:
                 main._assert_user_owns_org("user-owned", "org-other")

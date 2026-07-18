@@ -216,13 +216,29 @@ def _get_passport_by_org(org_id: str) -> dict[str, Any] | None:
     result = (
         get_supabase()
         .table("brand_passports")
-        .select("id,org_id,owner_user_id")
+        .select("id,org_id,owner_user_id,brand_name")
         .eq("org_id", org_id)
         .order("updated_at", desc=True)
         .limit(1)
         .execute()
     )
     return result.data[0] if result.data else None
+
+
+def _ensure_org_exists(org_id: str, name: str) -> None:
+    """Keep the org foreign-key root in sync with its owned Brand Passport."""
+    sb = get_supabase()
+    existing = sb.table("orgs").select("id").eq("id", org_id).limit(1).execute()
+    if existing.data:
+        return
+
+    try:
+        sb.table("orgs").insert({"id": org_id, "name": name or "Untitled brand"}).execute()
+    except Exception as error:
+        # Two concurrent first requests may both observe a missing row. The
+        # winner creates it; the loser can safely continue after 23505.
+        if "23505" not in str(error):
+            raise
 
 
 def _assert_user_owns_org(user_id: str, org_id: str) -> None:
@@ -236,6 +252,7 @@ def _assert_user_owns_org(user_id: str, org_id: str) -> None:
         raise HTTPException(status_code=403, detail="Org is not linked to this user")
     if str(passport.get("owner_user_id")) != user_id:
         raise HTTPException(status_code=403, detail="Org does not belong to this user")
+    _ensure_org_exists(org_id, str(passport.get("brand_name") or "Untitled brand"))
 
 
 def _assert_onboarding_owner(auth: AuthContext, owner_user_id: str) -> None:
@@ -300,6 +317,7 @@ def _save_onboarding_passport(owner_user_id: str, org_id: str, answers: dict[str
     sb = get_supabase()
     existing = _get_onboarding_passport(owner_user_id)
     payload = _onboarding_payload(owner_user_id, org_id, answers)
+    _ensure_org_exists(org_id, str(payload["brand_name"]))
 
     def write(next_payload: dict[str, Any]):
         if existing:

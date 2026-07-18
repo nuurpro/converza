@@ -5,6 +5,30 @@ import { getDashboardGateDestination, isPublicAppRoute } from "../lib/access.ts"
 import { privacyPolicy } from "../lib/legal/privacy.ts";
 import { getFooterLinkHref, publicDocuments } from "../lib/legal/documents.ts";
 import { BACKEND_UNAVAILABLE_DETAIL } from "../lib/api/errors.ts";
+import { getCurrentOrgId, setCurrentOrgId } from "../lib/org.ts";
+import { getWorkspaceNavItems } from "../lib/data/workspace.ts";
+
+test("authenticated passport org replaces stale browser org id", () => {
+  const values = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+  Object.defineProperty(globalThis, "window", {
+    value: { localStorage },
+    configurable: true,
+  });
+
+  setCurrentOrgId("org-from-passport", "user-1");
+
+  assert.equal(getCurrentOrgId("user-1"), "org-from-passport");
+  delete (globalThis as { window?: unknown }).window;
+});
+
+test("connect channels is settings-only, not daily sidebar navigation", () => {
+  const channels = getWorkspaceNavItems().find((item) => item.id === "channels");
+  assert.equal(channels, undefined);
+});
 
 test("offline backend errors explain how to restore onboarding", () => {
   assert.equal(

@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   UsersRound,
   Plug,
+  RadioTower,
 } from "lucide-react";
 
 const groups = [
@@ -29,6 +30,7 @@ const groups = [
     items: [
       { id: "brand", label: "Brand passport", href: "/settings/brand", icon: Palette, hint: "Voice, tone, audience" },
       { id: "audience", label: "Target audience", href: "/settings/audience", icon: UsersRound, hint: "Buyer profile, fears, markets" },
+      { id: "channels", label: "Channels", href: "/settings/channels", icon: RadioTower, hint: "Telegram, Instagram, TikTok, WhatsApp" },
       { id: "integrations", label: "Integrations", href: "/settings/integrations", icon: Plug, hint: "Connectors and data sources" },
       { id: "tokens", label: "API tokens", href: "/settings/tokens", icon: KeyRound, hint: "Personal access tokens" },
     ],
@@ -155,7 +157,7 @@ function SettingsHub() {
           <span className="font-display text-accent">refine?</span>
         </h2>
         <p className="mt-3 max-w-md text-[15px] leading-relaxed text-text-secondary">
-          Eight rooms. Each one shapes how the swarm thinks, ships, and bills.
+          Each room shapes how the workspace thinks, creates, and operates.
         </p>
       </div>
 
