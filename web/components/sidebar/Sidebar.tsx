@@ -18,6 +18,7 @@ import {
   getWorkspaceNavItems,
   type WorkspaceNavItem,
 } from "@/lib/data/workspace";
+import { getCachedBrandName } from "@/lib/brand-cache";
 
 // ─────────────────────────────────────────────────────────────────────
 // Types
@@ -55,28 +56,27 @@ const navItems: NavItem[] = getWorkspaceNavItems().map((item) => ({
   icon: navIconMap[item.id],
 }));
 
-const BRAND_NAME_STORAGE_KEY = "converza.brandName";
-
 // ─────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const [brandName, setBrandName] = useState("Osman Skincare");
+  const [brandName, setBrandName] = useState("Workspace");
 
   useEffect(() => {
     function readBrandName() {
-      const stored = window.localStorage.getItem(BRAND_NAME_STORAGE_KEY)?.trim();
-      setBrandName(stored || "Osman Skincare");
+      setBrandName(getCachedBrandName() || "Workspace");
     }
 
     readBrandName();
     window.addEventListener("storage", readBrandName);
+    window.addEventListener("converza:owner-user-updated", readBrandName);
     window.addEventListener("converza:brand-name-updated", readBrandName);
 
     return () => {
       window.removeEventListener("storage", readBrandName);
+      window.removeEventListener("converza:owner-user-updated", readBrandName);
       window.removeEventListener("converza:brand-name-updated", readBrandName);
     };
   }, []);
@@ -165,17 +165,6 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         {navItems.filter((item) => item.placement === "footer").map((item, i) => (
           <NavLink key={item.id} item={item} index={i} />
         ))}
-        <div className="mt-2 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 font-workspace-sans">
-          <span className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-black text-[11px] font-medium text-white">
-            N
-          </span>
-          <span className="text-[12px] text-[#111111]">
-            Nodir
-          </span>
-          <span className="ml-auto font-workspace-mono text-[9px] uppercase tracking-[0.06em] text-[#999999]">
-            Free
-          </span>
-        </div>
       </div>
     </>
   );

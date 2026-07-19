@@ -13,8 +13,7 @@ import {
   Cpu,
   ChevronLeft,
   UsersRound,
-  Plug,
-  RadioTower,
+  Cable,
 } from "lucide-react";
 
 const groups = [
@@ -30,8 +29,7 @@ const groups = [
     items: [
       { id: "brand", label: "Brand passport", href: "/settings/brand", icon: Palette, hint: "Voice, tone, audience" },
       { id: "audience", label: "Target audience", href: "/settings/audience", icon: UsersRound, hint: "Buyer profile, fears, markets" },
-      { id: "channels", label: "Channels", href: "/settings/channels", icon: RadioTower, hint: "Telegram, Instagram, TikTok, WhatsApp" },
-      { id: "integrations", label: "Integrations", href: "/settings/integrations", icon: Plug, hint: "Connectors and data sources" },
+      { id: "connections", label: "Connections", href: "/settings/connections", icon: Cable, hint: "Channels and data integrations" },
       { id: "tokens", label: "API tokens", href: "/settings/tokens", icon: KeyRound, hint: "Personal access tokens" },
     ],
   },
@@ -98,6 +96,7 @@ export default function SettingsLayout({
                       <Link
                         key={item.id}
                         href={item.href}
+                        aria-current={active ? "page" : undefined}
                         className={clsx(
                           "group relative flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition-colors",
                           active

@@ -26,7 +26,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { OWNER_USER_STORAGE_KEY } from "@/lib/onboarding";
+import { setActiveOwnerUserId } from "@/lib/onboarding";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getFooterLinkHref } from "@/lib/legal/documents";
 
@@ -1829,7 +1829,7 @@ function AuthModal({
         return;
       }
 
-      window.localStorage.setItem(OWNER_USER_STORAGE_KEY, userId);
+      setActiveOwnerUserId(userId);
       onClose();
       router.push("/onboarding");
     } catch (error) {

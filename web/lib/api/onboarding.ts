@@ -9,6 +9,7 @@ export interface OnboardingPassport {
   onboarding_answers?: OnboardingAnswers;
   onboarding_completed_at?: string | null;
   paywall_status?: "pending" | "stub_completed" | "paid";
+  selected_plan?: "basic" | "pilot" | "operating-system" | null;
   brand_name?: string | null;
 }
 
@@ -74,12 +75,13 @@ export async function markOnboardingComplete(ownerUserId: string) {
   return payload.passport;
 }
 
-export async function completeStubPayment(ownerUserId: string) {
+export async function completeStubPayment(ownerUserId: string, selectedPlan: string) {
   const payload = await apiJson<{ passport: OnboardingPassport }>("/api/onboarding/stub-payment", {
     method: "POST",
     body: JSON.stringify({
       owner_user_id: ownerUserId,
       org_id: getCurrentOrgId(ownerUserId),
+      selected_plan: selectedPlan,
     }),
   });
   return payload.passport;

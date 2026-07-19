@@ -21,6 +21,8 @@ export default function PaywallPage() {
   const [selectedPlan, setSelectedPlan] = useState("pilot");
   const [showRegret, setShowRegret] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
+  const [checkoutPending, setCheckoutPending] = useState(false);
 
   const analysis = useMemo(() => buildAnalysis(answers), [answers]);
 
@@ -62,13 +64,20 @@ export default function PaywallPage() {
 
   const handleCheckoutMock = async (provider: string) => {
     console.log(`[Checkout Intent] User selected: ${provider}`);
-    setShowPaymentModal(false);
-    if (ownerUserId) {
-      await completeStubPayment(ownerUserId).catch((error) => {
-        console.warn("[Checkout Intent] Could not mark stub payment complete", error);
-      });
+    if (!ownerUserId || checkoutPending) return;
+    setCheckoutPending(true);
+    setCheckoutError("");
+    try {
+      await completeStubPayment(ownerUserId, selectedPlan);
+      setShowPaymentModal(false);
+      router.push("/dashboard");
+    } catch (error) {
+      setCheckoutError(
+        error instanceof Error ? error.message : "Could not enable testing access.",
+      );
+    } finally {
+      setCheckoutPending(false);
     }
-    router.push("/dashboard");
   };
 
   return (
@@ -184,6 +193,7 @@ export default function PaywallPage() {
               <button
                 type="button"
                 onClick={() => handleCheckoutMock("Paddle")}
+                disabled={checkoutPending}
                 className="group w-full border border-zinc-800 bg-zinc-950 p-4 text-left transition-colors hover:border-[#1b5bf7] hover:bg-[#1b5bf7]/10"
               >
                 <div className="flex items-center justify-between gap-4">
@@ -200,6 +210,7 @@ export default function PaywallPage() {
               <button
                 type="button"
                 onClick={() => handleCheckoutMock("Local")}
+                disabled={checkoutPending}
                 className="group w-full border border-zinc-800 bg-zinc-950 p-4 text-left transition-colors hover:border-emerald-500 hover:bg-emerald-500/10"
               >
                 <div className="flex items-center justify-between gap-4">
@@ -214,9 +225,16 @@ export default function PaywallPage() {
               </button>
             </div>
 
+            {checkoutError ? (
+              <p role="alert" className="mt-4 border border-red-900 bg-red-950/40 px-4 py-3 text-[13px] text-red-200">
+                {checkoutError}
+              </p>
+            ) : null}
+
             <button
               type="button"
               onClick={() => setShowPaymentModal(false)}
+              disabled={checkoutPending}
               className="mt-5 w-full border border-zinc-800 px-4 py-3 text-[13px] font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-white"
             >
               Cancel

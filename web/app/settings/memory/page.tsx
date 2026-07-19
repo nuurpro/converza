@@ -1,79 +1,75 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
-
-const memories = [
-  {
-    id: "m-1",
-    text: "Brand voice: direct, confident, warm. Avoid 'unleash', 'seamless', 'elevate'.",
-    source: "Brand passport",
-    when: "Auto",
-  },
-  {
-    id: "m-2",
-    text: "User prefers Reels-first creative for US market, TikTok-first for UAE.",
-    source: "Co-Pilot · 14 Mar",
-    when: "6 weeks ago",
-  },
-  {
-    id: "m-3",
-    text: "Ad budget cap: $200/day per channel. Pause auto-triggers above CPA $14.",
-    source: "BudgetBrain",
-    when: "12 days ago",
-  },
-  {
-    id: "m-4",
-    text: "Always credit photographer @askar.io on Instagram brand posts.",
-    source: "Co-Pilot · 02 Apr",
-    when: "26 days ago",
-  },
-];
+import { useEffect, useMemo, useState } from "react";
+import { Brain } from "lucide-react";
+import { fetchAgentMemory, type AgentMemoryRow } from "@/lib/api/settings";
+import { getCurrentOrgId } from "@/lib/org";
+import { agentName } from "@/lib/settings";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export default function MemoryPage() {
+  const [memory, setMemory] = useState<AgentMemoryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const user = supabase ? (await supabase.auth.getUser()).data.user : null;
+        if (!user) throw new Error("Sign in to view agent memory.");
+        setMemory(await fetchAgentMemory(getCurrentOrgId(user.id)));
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : "Could not load agent memory.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    void load();
+  }, []);
+
+  const knownMemory = useMemo(
+    () => memory.filter((row) => agentName(row.agent_slug) !== "Unknown agent"),
+    [memory],
+  );
+
   return (
     <div className="space-y-12">
       <header>
-        <h2 className="text-[28px] font-medium tracking-[-0.025em] text-text-primary">
-          Agent memory
-        </h2>
+        <h2 className="text-[28px] font-medium tracking-[-0.025em] text-text-primary">Agent memory</h2>
         <p className="mt-2 max-w-md text-[15px] leading-relaxed text-text-secondary">
-          What the swarm remembers between threads. Edit, prune, or wipe — the agents pick up the change on the next run.
+          Real context saved by Milo, Sleyz, and Vea for this workspace.
         </p>
       </header>
 
-      <div className="space-y-3">
-        {memories.map((m) => (
-          <div
-            key={m.id}
-            className="group flex items-start gap-4 rounded-xl border border-border bg-bg-elevated p-4 transition-colors hover:border-border-hover"
-          >
-            <div className="flex-1">
-              <p className="text-[14px] leading-relaxed text-text-primary">
-                {m.text}
-              </p>
-              <div className="mt-2 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                <span>{m.source}</span>
-                <span className="h-0.5 w-0.5 rounded-full bg-text-muted" />
-                <span>{m.when}</span>
-              </div>
-            </div>
-            <button
-              aria-label="Forget this"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-muted opacity-0 transition-all hover:bg-error/10 hover:text-error group-hover:opacity-100"
-            >
-              <Trash2 size={13} strokeWidth={2} />
-            </button>
-          </div>
-        ))}
-      </div>
+      {loading ? <p className="text-[14px] text-text-muted">Loading memory...</p> : null}
+      {error ? (
+        <p className="rounded-xl border border-error/20 bg-error/5 p-4 text-[13px] text-error" role="alert">
+          {error}
+        </p>
+      ) : null}
 
-      <div className="flex items-center justify-between border-t border-border pt-6">
-        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted">
-          {memories.length} memories · 2.4 KB
-        </span>
-        <button className="text-[12.5px] font-medium text-error hover:underline">
-          Wipe all memory
-        </button>
+      {!loading && !error && knownMemory.length === 0 ? (
+        <div className="rounded-2xl border border-border bg-bg-elevated p-8 text-center">
+          <Brain className="mx-auto text-text-muted" size={20} strokeWidth={1.7} />
+          <h3 className="mt-4 text-[15px] font-medium text-text-primary">No memory yet</h3>
+          <p className="mt-2 text-[13px] text-text-muted">No memory yet - this fills in as your agents work.</p>
+        </div>
+      ) : null}
+
+      <div className="space-y-3">
+        {knownMemory.map((row) => (
+          <article key={row.id} className="rounded-xl border border-border bg-bg-elevated p-4">
+            <p className="text-[14px] leading-relaxed text-text-primary">{row.content}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-text-muted">
+              <span>{agentName(row.agent_slug)}</span>
+              <span aria-hidden="true">/</span>
+              <span>{row.role}</span>
+              <span aria-hidden="true">/</span>
+              <time dateTime={row.created_at}>{new Date(row.created_at).toLocaleString()}</time>
+            </div>
+          </article>
+        ))}
       </div>
     </div>
   );

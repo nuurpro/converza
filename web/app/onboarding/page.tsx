@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
-  OWNER_USER_STORAGE_KEY,
+  setActiveOwnerUserId,
   type OnboardingAnswers,
   channelOptions,
   loadLocalAnswers,
@@ -65,7 +65,7 @@ export default function OnboardingPage() {
         router.replace("/landing");
         return;
       }
-      window.localStorage.setItem(OWNER_USER_STORAGE_KEY, userId);
+      setActiveOwnerUserId(userId);
       setOwnerUserId(userId);
     }
 

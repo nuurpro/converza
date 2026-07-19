@@ -1,4 +1,6 @@
 import { PLAN_PRICES } from "./pricing.shared.js";
+import { setCachedBrandName } from "./brand-cache";
+export { OWNER_USER_STORAGE_KEY, setActiveOwnerUserId } from "./brand-cache";
 
 export type MarketingHandler = "nobody" | "me" | "in-house" | "agency-freelancer";
 export type ReplyHandler = "me" | "someone else" | "falls through the cracks";
@@ -37,8 +39,6 @@ export interface OnboardingAnalysis {
 }
 
 export const ONBOARDING_STORAGE_KEY = "converza.onboarding.answers";
-export const OWNER_USER_STORAGE_KEY = "converza.ownerUserId";
-export const BRAND_NAME_STORAGE_KEY = "converza.brandName";
 
 export const toneOptions = ["confident", "friendly", "premium", "playful", "technical", "direct"];
 export const channelOptions = ["Instagram", "TikTok", "Telegram", "WhatsApp", "website chat"];
@@ -148,7 +148,6 @@ export function saveLocalAnswers(answers: OnboardingAnswers) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(answers));
   if (answers.business_name?.trim()) {
-    window.localStorage.setItem(BRAND_NAME_STORAGE_KEY, answers.business_name.trim());
-    window.dispatchEvent(new Event("converza:brand-name-updated"));
+    setCachedBrandName(answers.business_name);
   }
 }

@@ -23,6 +23,7 @@ from lib.marketing_calendar import (
 )
 from lib.marketing_calendar_repository import MarketingCalendarRepository
 from lib.narration import narrate_step
+from lib.settings_repository import SettingsConflictError, SettingsRepository
 from lib.switchboard import (
     handle_direct_agent_message,
     handle_squad_owner_message,
@@ -54,6 +55,13 @@ class OnboardingSaveRequest(BaseModel):
 class OnboardingOwnerRequest(BaseModel):
     owner_user_id: str
     org_id: str | None = None
+    selected_plan: str | None = None
+
+
+class WorkspaceSettingsUpdateRequest(BaseModel):
+    org_id: str
+    updates: dict[str, Any]
+    expected_updated_at: str
 
 
 class AuthContext(BaseModel):
@@ -104,6 +112,10 @@ def get_switchboard_repo() -> SupabaseRepository:
 
 def get_marketing_calendar_repo() -> MarketingCalendarRepository:
     return MarketingCalendarRepository(get_supabase())
+
+
+def get_settings_repo() -> SettingsRepository:
+    return SettingsRepository(get_supabase())
 
 
 def get_default_org_id() -> str:
@@ -197,12 +209,68 @@ def _is_missing_onboarding_migration(error: Exception) -> bool:
 
 def _missing_schema_column(error: Exception) -> str | None:
     message = str(error)
-    if "PGRST204" not in message and "Could not find the" not in message:
-        return None
     marker = "Could not find the '"
-    if marker not in message:
-        return None
-    return message.split(marker, 1)[1].split("'", 1)[0]
+    if marker in message:
+        return message.split(marker, 1)[1].split("'", 1)[0]
+
+    postgres_marker = "column brand_passports."
+    if "42703" in message and postgres_marker in message:
+        return message.split(postgres_marker, 1)[1].split(" ", 1)[0]
+    return None
+
+
+SETTINGS_UPDATE_FIELDS = {
+    "owner_name",
+    "owner_role",
+    "brand_name",
+    "tone",
+    "target_audience",
+    "core_offer",
+    "target_location",
+}
+REQUIRED_SETTINGS_FIELDS = SETTINGS_UPDATE_FIELDS - {"owner_role"}
+VALID_PLAN_IDS = {"basic", "pilot", "operating-system"}
+
+
+def _validate_settings_updates(updates: dict[str, Any]) -> dict[str, Any]:
+    if not updates:
+        raise HTTPException(status_code=400, detail="No settings changes supplied")
+    unknown = set(updates) - SETTINGS_UPDATE_FIELDS
+    if unknown:
+        names = ", ".join(sorted(unknown))
+        raise HTTPException(status_code=400, detail=f"Unsupported settings fields: {names}")
+
+    cleaned = dict(updates)
+    for field in REQUIRED_SETTINGS_FIELDS & set(cleaned):
+        value = cleaned[field]
+        if not isinstance(value, str) or not value.strip():
+            raise HTTPException(status_code=400, detail=f"{field} cannot be blank")
+        cleaned[field] = value.strip()
+
+    if "owner_role" in cleaned:
+        value = cleaned["owner_role"]
+        if value is not None and not isinstance(value, str):
+            raise HTTPException(status_code=400, detail="owner_role must be text or null")
+        cleaned["owner_role"] = value.strip() or None if isinstance(value, str) else None
+    return cleaned
+
+
+def _stub_payment_updates(selected_plan: str | None) -> dict[str, str]:
+    if selected_plan not in VALID_PLAN_IDS:
+        raise HTTPException(status_code=400, detail="Select a valid plan")
+    return {
+        "paywall_status": "stub_completed",
+        "selected_plan": selected_plan,
+    }
+
+
+def _raise_settings_migration_error(error: Exception) -> None:
+    missing = _missing_schema_column(error)
+    if missing in {"owner_role", "selected_plan"}:
+        raise HTTPException(
+            status_code=503,
+            detail="Settings database migration is pending. Run migrations/006_settings_real_data.sql in Supabase, then refresh.",
+        )
 
 
 def _raise_onboarding_migration_error() -> None:
@@ -451,7 +519,7 @@ async def complete_stub_payment(
     try:
         passport = _update_onboarding_status(
             request.owner_user_id,
-            {"paywall_status": "stub_completed"},
+            _stub_payment_updates(request.selected_plan),
         )
         return {"passport": passport}
     except KeyError:
@@ -459,7 +527,66 @@ async def complete_stub_payment(
     except Exception as e:
         if _is_missing_onboarding_migration(e):
             _raise_onboarding_migration_error()
+        _raise_settings_migration_error(e)
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Workspace settings
+# ---------------------------------------------------------------------------
+
+@app.get("/api/settings/{org_id}")
+async def get_workspace_settings(
+    org_id: str,
+    auth: AuthContext = Depends(require_authenticated_user),
+):
+    _assert_user_owns_org(auth.user_id, org_id)
+    try:
+        settings = get_settings_repo().get_passport(org_id)
+        if not settings:
+            raise HTTPException(status_code=404, detail="Brand Passport not found")
+        return {"settings": settings}
+    except HTTPException:
+        raise
+    except Exception as error:
+        _raise_settings_migration_error(error)
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.patch("/api/settings")
+async def update_workspace_settings(
+    request: WorkspaceSettingsUpdateRequest,
+    auth: AuthContext = Depends(require_authenticated_user),
+):
+    _assert_user_owns_org(auth.user_id, request.org_id)
+    updates = _validate_settings_updates(request.updates)
+    try:
+        settings = get_settings_repo().update_passport(
+            request.org_id,
+            updates,
+            expected_updated_at=request.expected_updated_at,
+        )
+        return {"settings": settings}
+    except SettingsConflictError:
+        raise HTTPException(
+            status_code=409,
+            detail="Settings changed in another tab. Reload before saving again.",
+        )
+    except Exception as error:
+        _raise_settings_migration_error(error)
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.get("/api/settings/{org_id}/memory")
+async def get_workspace_memory(
+    org_id: str,
+    auth: AuthContext = Depends(require_authenticated_user),
+):
+    _assert_user_owns_org(auth.user_id, org_id)
+    try:
+        return {"memory": get_settings_repo().get_memory(org_id)}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
 
 
 # ---------------------------------------------------------------------------

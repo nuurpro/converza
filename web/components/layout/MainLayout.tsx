@@ -8,6 +8,7 @@ import { fetchOnboardingState } from "@/lib/api/onboarding";
 import { getDashboardGateDestination, isPublicAppRoute } from "@/lib/access";
 import { setCurrentOrgId } from "@/lib/org";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { setActiveOwnerUserId } from "@/lib/brand-cache";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -39,8 +40,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
         const ownerUserId = sessionUser?.id || null;
 
         if (sessionUser?.id) {
-          const { OWNER_USER_STORAGE_KEY } = await import("@/lib/onboarding");
-          window.localStorage.setItem(OWNER_USER_STORAGE_KEY, sessionUser.id);
+          setActiveOwnerUserId(sessionUser.id);
         }
 
         const passport = ownerUserId ? await fetchOnboardingState(ownerUserId) : null;
