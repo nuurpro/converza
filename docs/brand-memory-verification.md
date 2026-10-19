@@ -25,7 +25,7 @@ Implementation is ready for review on `codex/brand-memory-hitl`. Production roll
 ## Outstanding gates
 
 - Huawei connects at the supplied `/v2` endpoint, but the last live smoke/extraction attempts received HTTP 401 `ModelArts.81003` (invalid authorization header). No successful live inference or live quality score is claimed. A corrected deployment API key is required.
-- Docker Desktop daemon is unavailable locally; images have not been built or started.
+- Docker Desktop daemon is unavailable locally; images have not been built or started. A local startup attempt on 2026-10-19 failed while binding its `dockerInference` Unix socket (address already in use / invalid filename). The engine stopped before readiness. The task-started Desktop processes were closed; no factory reset, socket deletion or Docker configuration change was attempted.
 - Production migrations, backfill and restarts have not been run. Follow [the rollout procedure](brand-memory-rollout.md) after explicit approval.
 - Historical hardcoded credentials in the existing Sleyz Kubernetes manifest were replaced with Secret references. Rotate those previously exposed credentials before deployment; removing source values does not revoke them.
 - The workspace contained substantial preexisting consolidation changes. Unrelated root deletions and archived support/media applications are excluded from this feature commit. Supporting consolidated core and active agent files are included because the new runtime imports them.
