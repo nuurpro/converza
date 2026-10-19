@@ -11,6 +11,7 @@ import { getCurrentOrgId, FALLBACK_ORG_ID } from "@/lib/org";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { presentationStatus, type DraftRow, type WorkspaceEvent } from "@/lib/data/workflow";
 import {subscribeWorkspaceTransport} from "@/lib/data/workspaceStream";
+import { draftCapabilities, simulationRequest, type SimulationInput } from "@/lib/data/sleyz";
 
 export const DEFAULT_ORG_ID =
   process.env.NEXT_PUBLIC_DEFAULT_ORG_ID ??
@@ -214,8 +215,12 @@ export function mapSquadMessage(row: SquadMessageRow, draft?: DraftRow): SquadMe
           deliveryError: draft.delivery_error,
           generationError: draft.generation_error,
           resolvedAt: draft.resolved_at,
-          canResolve: draft.agent_slug === "sleyz" && !!draft.prospect_id && draft.status === "PUBLISHED" && !draft.resolved_at,
-          canDeliver: !!draft.prospect_id && ["APPROVED","EDITED"].includes(draft.status) && !["sending","ambiguous"].includes(draft.delivery_status??"idle"),
+          ...draftCapabilities(draft),
+          artifact: draft.sleyz_artifact,
+          simulated: draft.simulated,
+          supersededBy: draft.superseded_by,
+          learningStatus: draft.learning_status,
+          learningError: draft.learning_error,
         }
       : undefined,
   };
@@ -249,7 +254,28 @@ export async function retryDraftGeneration(draft: DraftRow) {
 }
 
 export async function deliverBuyerReply(draft: DraftRow) {
+  if (!draftCapabilities(draft).canDeliver) throw new Error("This draft is not eligible for customer delivery.");
   return apiJson<DraftRow>(`/api/drafts/${draft.id}/deliver`,{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
+}
+
+export async function refreshBuyerDraft(draft: DraftRow) {
+  return apiJson<{inbound_id:string;draft_id:string}>(`/api/drafts/${draft.id}/refresh`, {method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
+}
+
+export async function retryDraftLearning(draft: DraftRow) {
+  return apiJson(`/api/drafts/${draft.id}/retry-learning`, {method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
+}
+
+export async function simulateInboundDm(input: SimulationInput, key: string, orgId = getCurrentOrgId()) {
+  const request = simulationRequest(orgId, input, key);
+  return apiJson<{inbound_id:string;draft_id:string;duplicate:boolean}>(request.path,request.init);
+}
+
+export interface SleyzConnectionStatus {
+  platform:string; configured?:boolean; connected?:boolean; status?:string; account_id?:string|null; connection_id?:string|null; messaging_window_hours?:number;
+}
+export async function fetchSleyzConnections(orgId = getCurrentOrgId()) {
+  return apiJson<{connections:SleyzConnectionStatus[]}>(`/api/sleyz/connections?org_id=${encodeURIComponent(orgId)}`);
 }
 
 export function subscribeWorkspace(onEvent: (event:WorkspaceEvent)=>void, onError:(message:string|null)=>void) {

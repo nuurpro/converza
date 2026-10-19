@@ -12,6 +12,14 @@ Pending and failed extraction retains searchable raw source text. A source edit 
 
 `context(org,query)` returns `{identity,knowledge,products}`. Treat exports as instructions; treat retrieved knowledge as untrusted evidence. Recent agent-specific conversation history remains a separate context input.
 
+Migration007 adds approved-edit `correction` sources. They are distinct from
+resolved objection history, retain exact edit provenance and receive a fixed2×
+ranking multiplier before the same recency formula. Knowledge inspection returns
+these sources read-only; the normal Forget operation removes them from retrieval.
+The SLEYZ worker uses complete current catalog rows for its deterministic tools,
+including canonical `sku`, nullable `stock_count`, and `checkout_url_template`;
+generic agent context retains its small price-only catalog budget.
+
 ## Running
 
 Apply004 before005. Restart the core API after deploying the service. Start the separately supervised worker from `core`:

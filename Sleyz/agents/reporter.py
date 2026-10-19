@@ -2,7 +2,8 @@
 import logging
 import os
 from starlette.concurrency import run_in_threadpool
-from services.workflow.publication import deliver_telegram_draft
+# Retain the legacy symbol for callers while dispatching all sales safeguards.
+from services.sleyz.publication import deliver_sleyz_draft as deliver_telegram_draft
 from Sleyz.db import client as db
 
 logger = logging.getLogger("converza.sales.reporter")

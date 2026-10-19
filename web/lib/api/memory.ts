@@ -8,12 +8,14 @@ export interface IdentityCore {
 export interface ProductRecord {
   id: string; name: string; description: string; price: string; currency: string;
   metadata: Record<string, unknown>; updated_at?: string;
+  sku?: string | null; stock_count?: number | null; checkout_url_template?: string | null; revision?: number;
 }
 export interface KnowledgeRecord {
   id: string; source_id?: string; kind: string; title: string; content: string;
   summary?: string; revision: number; updated_at?: string;
   read_only?: boolean;
-  atoms?: {objection?: string; answer?: string; text?: string; resolved_at?: string}[];
+  atoms?: {objection?: string; answer?: string; text?: string; rule?: string; resolved_at?: string; supporting_spans?: unknown[]; metadata?: Record<string,unknown>; originating_draft_id?:string; originating_revision?:number; draft_id?:string; approved_revision?:number; approved_at?:string; priority?:number}[];
+  metadata?: Record<string,unknown>;
 }
 export interface IndexJob { id: string; status: string; error?: string; last_error?: string; source_id: string; }
 

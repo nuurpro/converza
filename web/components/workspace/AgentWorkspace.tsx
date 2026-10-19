@@ -319,6 +319,8 @@ export function SquadMessage({
   onResolve,
   onDeliver,
   onRetry,
+  onRefresh,
+  onRetryLearning,
   busy,
 }: {
   message: SquadMessageData;
@@ -327,6 +329,8 @@ export function SquadMessage({
   onResolve?: () => void;
   onDeliver?: () => void;
   onRetry?: () => void;
+  onRefresh?: () => void;
+  onRetryLearning?: () => void;
   busy?: boolean;
 }) {
   return (
@@ -359,6 +363,8 @@ export function SquadMessage({
             onResolve={onResolve}
             onDeliver={onDeliver}
             onRetry={onRetry}
+            onRefresh={onRefresh}
+            onRetryLearning={onRetryLearning}
             busy={busy}
           />
         )}
@@ -375,6 +381,8 @@ export function HitlCard({
   onResolve,
   onDeliver,
   onRetry,
+  onRefresh,
+  onRetryLearning,
   busy,
 }: {
   card: HitlCardData;
@@ -384,11 +392,13 @@ export function HitlCard({
   onResolve?: () => void;
   onDeliver?: () => void;
   onRetry?: () => void;
+  onRefresh?: () => void;
+  onRetryLearning?: () => void;
   busy?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(card.content);
-  const resolved = card.status !== "pending";
+  const resolved = card.status !== "pending" || !!card.supersededBy;
   const canSubmitEdit = editText.trim().length > 0;
   const statusClass = {
     approved: "bg-sleyz-dim text-sleyz",
@@ -412,12 +422,29 @@ export function HitlCard({
       <div className="font-workspace-mono text-[9px] uppercase tracking-[0.06em] text-[#999999]">
         {card.label}
       </div>
+      {card.simulated && <p className="mt-2 text-xs font-medium text-milo">Simulation · customer delivery and learning disabled</p>}
+      {card.supersededBy && <p className="mt-2 text-xs text-text-muted">Replaced by a refreshed draft. Review the replacement before sending.</p>}
+      {card.artifact && <div className="mt-3 space-y-2 border-y border-border py-3 text-xs">
+        <p><span className="font-medium">{card.artifact.intent} · {Math.round(card.artifact.intent_score * 100)}% readiness</span> · {card.artifact.platform} · {card.artifact.customer_handle}</p>
+        <p className="whitespace-pre-wrap text-text-secondary">Buyer: {card.artifact.incoming_message}</p>
+        {card.artifact.detected_objection && <p>Objection: {card.artifact.detected_objection}</p>}
+        {card.artifact.product_snapshot.map(product => <p key={product.id}>{product.name}{product.sku ? ` · ${product.sku}` : ""} · {product.price === null ? "Price unknown" : `${product.currency} ${product.price}`} · {product.stock_count === null ? "Stock unknown" : `${product.stock_count} in stock`} · quantity {card.artifact!.quantity}</p>)}
+        {card.artifact.checkout_link && <a href={card.artifact.checkout_link} target="_blank" rel="noopener noreferrer" className="block break-all text-converza-blue underline">Checkout: {card.artifact.checkout_link}</a>}
+        {card.artifact.operator_notes.map((note,index) => <p key={index} className="text-milo">{note}</p>)}
+        <details><summary className="cursor-pointer text-text-secondary">Evidence ({card.artifact.cited_brand_passport_atoms.length}) and original draft</summary>
+          {card.artifact.cited_brand_passport_atoms.map((citation,index) => <p key={index} className="mt-2 break-all font-mono">Source {citation.source_id} · revision {citation.revision}{citation.atom_index != null ? ` · Atom ${citation.atom_index}` : ""}{citation.span ? ` · span ${citation.span.join("–")}` : ""}</p>)}
+          <p className="mt-2 whitespace-pre-wrap text-text-muted">{card.artifact.draft_reply}</p>
+        </details>
+      </div>}
       <p className="mt-2 whitespace-pre-wrap text-[13px] leading-[1.5] text-[#111111]">
         {card.content}
       </p>
       {card.generationError&&<p role="alert" className="mt-2 text-xs text-error">{card.generationError}</p>}
       {card.deliveryError&&<p role="alert" className="mt-2 text-xs text-error">Delivery {card.deliveryStatus}: {card.deliveryError}</p>}
       {card.deliveryStatus==="sending"&&<p className="mt-2 text-xs text-text-muted">Delivery in progress</p>}
+      {card.deliveryStatus==="ambiguous"&&<p className="mt-2 text-xs text-milo">Delivery confirmation is uncertain. Check the channel before taking further action.</p>}
+      {card.learningStatus&&<p className="mt-2 text-xs text-text-muted">Correction learning: {card.learningStatus}</p>}
+      {card.learningError&&<p role="alert" className="mt-2 text-xs text-error">{card.learningError}</p>}
       {!resolved && isEditing && (
         <div className="mt-3">
           <label className="mb-1.5 block font-workspace-mono text-[9px] uppercase tracking-[0.08em] text-[#999999]">
@@ -436,6 +463,8 @@ export function HitlCard({
         {card.canDeliver&&<button disabled={busy} onClick={onDeliver} className="rounded-full border border-border px-3 py-1.5 text-xs disabled:opacity-50">{card.deliveryStatus==="failed"?"Retry delivery":"Send buyer reply"}</button>}
         {card.canResolve&&<button disabled={busy} onClick={onResolve} className="rounded-full border border-border px-3 py-1.5 text-xs disabled:opacity-50">Mark conversation resolved</button>}
         {card.generationError&&onRetry&&<button disabled={busy} onClick={onRetry} className="rounded-full border border-border px-3 py-1.5 text-xs disabled:opacity-50">Retry generation</button>}
+        {card.canRefresh&&onRefresh&&<button disabled={busy} onClick={onRefresh} className="rounded-full border border-border px-3 py-1.5 text-xs disabled:opacity-50">Refresh draft for new approval</button>}
+        {card.learningStatus==="failed"&&onRetryLearning&&<button disabled={busy} onClick={onRetryLearning} className="rounded-full border border-border px-3 py-1.5 text-xs disabled:opacity-50">Retry learning</button>}
         {resolved ? (
           <span className={clsx("rounded-full px-2.5 py-1 font-workspace-mono text-[10px]", statusClass)}>
             {statusLabel}

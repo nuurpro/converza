@@ -26,6 +26,9 @@ spec:
         - name: sales-bot
           image: converza_sales-sales-bot
           imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: converza-sales-runtime
           env:
             - name: PYTHONUNBUFFERED
               value: "1"

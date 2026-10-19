@@ -10,3 +10,11 @@ services:
     env_file:
       - ../core/.env
     restart: unless-stopped
+  sleyz-worker:
+    build:
+      context: ..
+      dockerfile: Sleyz/Dockerfile
+    command: ["python", "-m", "services.sleyz"]
+    env_file:
+      - ../core/.env
+    restart: unless-stopped

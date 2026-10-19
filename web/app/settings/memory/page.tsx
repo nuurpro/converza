@@ -47,7 +47,7 @@ export default function MemoryPage() {
   }
   return <div className="space-y-8">
     <header><h2 className="text-[28px] font-medium tracking-tight text-text-primary">Agent memory</h2>
-      <p className="mt-2 text-sm text-text-secondary">Current facts, FAQs, and resolved buyer objections. <Link className="underline" href="/products">Manage products and prices</Link>.</p></header>
+      <p className="mt-2 text-sm text-text-secondary">Current facts, FAQs, resolved buyer objections, and approved reply corrections. <Link className="underline" href="/products">Manage products and prices</Link>.</p></header>
     {message&&<p role="status" className="rounded-lg border border-border p-3 text-sm">{message}</p>}
     <form onSubmit={search} className="flex gap-2"><input aria-label="Search memory" className={input} value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search facts or objections…"/><button className="rounded-lg border border-border px-4">Search</button></form>
     <form onSubmit={save} className="space-y-3 rounded-xl border border-border p-4">
@@ -64,7 +64,8 @@ export default function MemoryPage() {
           <div className="flex gap-3 text-xs">{!searching&&!record.read_only&&["faq","manual"].includes(record.kind)&&<button onClick={()=>{setEditing(record.id);setKind(record.kind);setTitle(record.title);setContent(record.content);}}>Edit</button>}<button className="text-error" onClick={()=>void forget(record)}>Forget</button></div></div>
         <p className="mt-3 whitespace-pre-wrap text-sm">{record.content}</p>
         {record.summary&&<p className="mt-3 border-t border-border pt-3 text-sm text-text-secondary">Summary: {record.summary}</p>}
-        {record.atoms?.map((atom,i)=><blockquote key={i} className="mt-2 border-l-2 border-border pl-3 text-sm"><p>{atom.objection||atom.text}</p>{atom.answer&&<p className="mt-1">{atom.answer}</p>}{atom.resolved_at&&<time className="text-xs text-text-muted">{atom.resolved_at}</time>}</blockquote>)}
+        {record.kind==="correction"&&<p className="mt-2 text-xs text-text-muted">Learned from an approved edit · high priority · read only. Forget removes this correction from retrieval.</p>}
+        {record.atoms?.map((atom,i)=><blockquote key={i} className="mt-2 border-l-2 border-border pl-3 text-sm"><p>{atom.objection||atom.rule||atom.text}</p>{atom.answer&&<p className="mt-1">{atom.answer}</p>}{atom.resolved_at&&<time className="text-xs text-text-muted">{atom.resolved_at}</time>}{record.kind==="correction"&&<details className="mt-2 text-xs text-text-secondary"><summary className="cursor-pointer">Approval evidence and provenance</summary><pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify({draft_id:atom.draft_id??atom.originating_draft_id,revision:atom.approved_revision??atom.originating_revision,approved_at:atom.approved_at,priority:atom.priority,supporting_spans:atom.supporting_spans,metadata:atom.metadata??record.metadata},null,2)}</pre></details>}</blockquote>)}
       </article>)}
     </div>
     <section className="border-t border-border pt-5"><div className="flex items-center justify-between"><h3 className="font-medium">Background indexing</h3><button className="text-xs underline" onClick={()=>void load().catch(error=>setMessage(error.message))}>Refresh status</button></div>

@@ -81,16 +81,19 @@ def create_workflow_router(get_repo, authenticate, assert_owner):
         from lib.switchboard import retry_generation
         repo, draft = await scoped_draft(draft_id, auth)
         try:
+            if draft.get('inbound_id'):
+                from services.sleyz.store import SleyzStore
+                return await SleyzStore(repo).retry_generation(draft['org_id'],draft_id,body.expected_revision,idempotency_key)
             return await retry_generation(org_id=draft["org_id"], draft_id=draft_id, expected_revision=body.expected_revision, idempotency_key=idempotency_key, repo=repo)
         except WorkflowConflict as error:
             raise HTTPException(409, str(error))
 
     @router.post("/api/drafts/{draft_id}/deliver")
     async def deliver(draft_id: str, body: Decision, idempotency_key: str = Header(min_length=1, max_length=200), auth=Depends(authenticate)):
-        from services.workflow.publication import deliver_telegram_draft
+        from services.sleyz.publication import deliver_sleyz_draft
         repo, draft = await scoped_draft(draft_id, auth)
         try:
-            return await deliver_telegram_draft(repo=repo, org_id=draft["org_id"], draft_id=draft_id, expected_revision=body.expected_revision, idempotency_key=idempotency_key)
+            return await deliver_sleyz_draft(repo=repo, org_id=draft["org_id"], draft_id=draft_id, expected_revision=body.expected_revision, idempotency_key=idempotency_key)
         except WorkflowConflict as error:
             raise HTTPException(409, str(error))
         except (ValueError, KeyError) as error:
