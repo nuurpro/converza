@@ -1,0 +1,13 @@
+# Focused API runtime for supplied, approved scripts. No generation SDK fallback.
+moviepy==2.2.1
+edge_tts==7.2.7
+fastapi==0.136.3
+uvicorn==0.32.1
+openai==2.24.0
+loguru==0.7.3
+redis==5.2.0
+python-multipart==0.0.27
+requests==2.33.1
+pydub==0.25.1
+toml==0.10.2
+pydantic==2.14.1

@@ -93,6 +93,8 @@ class SleyzStore:
         self.repo.events[-1]['payload']['row'] = deepcopy(row)
         self.state['inbox'][inbound_id] = dict(id=inbound_id, org_id=envelope['org_id'], draft_id=draft['id'], prospect_id=prospect['id'], received_at=envelope['received_at'],
             envelope=envelope, dedup_key=key, status='pending', attempts=0, available_at=0, lease_until=None, lease_token=None)
+        from services.milo.store import enqueue_inbound
+        enqueue_inbound(self.repo, self.state['inbox'][inbound_id])
         return dict(inbound_id=inbound_id, draft_id=draft['id'], duplicate=False)
 
     async def _claim(self, learning, limit, lease_seconds):

@@ -1,0 +1,18 @@
+FROM python:3.11-slim-bookworm
+WORKDIR /MoneyPrinterTurbo
+ENV PYTHONPATH=/MoneyPrinterTurbo \
+    PYTHONDONTWRITEBYTECODE=1 \
+    MPT_APPROVED_ONLY=1 \
+    IMAGEIO_FFMPEG_EXE=/usr/bin/ffmpeg
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements.milo.txt ./
+RUN pip install --no-cache-dir -r requirements.milo.txt
+COPY app ./app
+COPY main.py config.example.toml LICENSE ./
+COPY scripts/prepare_resources.py ./scripts/prepare_resources.py
+RUN python scripts/prepare_resources.py \
+    && cp /usr/share/doc/fonts-dejavu-core/copyright resource/fonts/DejaVuSans-LICENSE.txt
+EXPOSE 8080
+CMD ["uvicorn", "app.asgi:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]

@@ -1,0 +1,11 @@
+**
+!app/
+!app/**
+!main.py
+!config.example.toml
+!LICENSE
+!requirements.milo.txt
+!scripts/
+!scripts/prepare_resources.py
+**/__pycache__/
+**/*.pyc

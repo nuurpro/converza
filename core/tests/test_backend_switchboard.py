@@ -74,11 +74,14 @@ class SwitchboardTests(unittest.IsolatedAsyncioTestCase):
                 )
             ),
         ):
-            await handle_direct_agent_message(
+            from lib.switchboard import run_agent
+            legacy = await repo.create_draft('org-1','milo','Legacy draft','')
+            await run_agent(
                 org_id="org-1",
                 agent_slug="milo",
                 text="Draft hooks for lead response speed",
                 repo=repo,
+                triggered_by='owner', existing_draft=legacy,
             )
 
         contents = [message["content"] for message in repo.squad_messages]
@@ -102,17 +105,22 @@ class SwitchboardTests(unittest.IsolatedAsyncioTestCase):
                 ]
             ),
         ):
-            await handle_direct_agent_message(
+            from lib.switchboard import run_agent
+            legacy = await repo.create_draft('org-skincare','milo','Legacy draft','')
+            await run_agent(
                 org_id="org-skincare",
                 agent_slug="milo",
                 text="Draft hand cream hooks",
                 repo=repo,
+                triggered_by='owner', existing_draft=legacy,
             )
-            await handle_direct_agent_message(
+            legacy = await repo.create_draft('org-clinic','milo','Legacy draft','')
+            await run_agent(
                 org_id="org-clinic",
                 agent_slug="milo",
                 text="Draft emergency dental hooks",
                 repo=repo,
+                triggered_by='owner', existing_draft=legacy,
             )
 
         finished = [
@@ -131,7 +139,7 @@ class SwitchboardTests(unittest.IsolatedAsyncioTestCase):
             any("cold plunge" in content or "+18%" in content or "5 hooks" in content for content in finished)
         )
 
-    async def test_owner_squad_message_routes_to_milo_then_delegates_to_vea_and_creates_hitl_draft(self):
+    async def test_owner_milo_campaign_is_queued_without_preapproval_vea_handoff(self):
         from lib.repository import InMemoryRepository
         from lib.switchboard import handle_squad_owner_message
 
@@ -168,13 +176,13 @@ class SwitchboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repo.squad_messages[0]["sender_slug"], "owner")
         self.assertEqual(
             [run["agent_slug"] for run in repo.agent_runs],
-            ["milo", "vea"],
+            ["milo"],
         )
-        self.assertEqual([d["agent_slug"] for d in repo.drafts], ["milo", "vea"])
-        self.assertIsNone(repo.drafts[-1]["prospect_id"])
-        self.assertTrue(all(d["status"] == "AWAITING_HITL" for d in repo.drafts))
-        self.assertEqual(repo.squad_messages[-1]["hitl_draft_id"], repo.drafts[-1]["id"])
-        self.assertEqual(repo.agent_runs[-1]["status"], "awaiting_hitl")
+        self.assertEqual(repo.drafts, [])
+        from services.milo.store import MiloStore
+        jobs=await MiloStore(repo).jobs('org-1')
+        self.assertEqual([j['kind'] for j in jobs],['generate'])
+        self.assertEqual(repo.agent_runs[-1]["status"], "completed")
 
     async def test_owner_squad_message_routes_all_explicit_mentions(self):
         from lib.repository import InMemoryRepository
@@ -208,7 +216,7 @@ class SwitchboardTests(unittest.IsolatedAsyncioTestCase):
                 return "@Milo this needs your campaign angle."
             return "@Sleyz this needs your sales angle."
 
-        with patch("lib.switchboard.call_engine", new=looping_engine):
+        with patch("lib.switchboard.call_engine", new=looping_engine), patch('lib.switchboard.classify_output',AsyncMock(return_value='internal_recommendation')):
             await run_agent(
                 org_id="org-1",
                 agent_slug="milo",

@@ -1,0 +1,36 @@
+"use client";
+import {useEffect,useState,type FormEvent} from 'react';
+import {fetchMiloBrand,fetchMiloSources,saveMiloBrand,type MiloSource} from '@/lib/api/milo';
+import {type MiloBrand,type MiloProof} from '@/lib/data/milo';
+import {useMiloOrg} from '@/lib/hooks/useMiloOrg';
+const input='mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-xs';
+const button='rounded-full border border-border px-3 py-2 text-xs disabled:opacity-50';
+export function MiloBrandConfig(){const org=useMiloOrg();return org?<BrandConfig key={org} org={org}/>:null;}
+function BrandConfig({org}:{org:string}){
+ const [brand,setBrand]=useState<MiloBrand|null>(null),[sources,setSources]=useState<MiloSource[]>([]),[sourceId,setSourceId]=useState(''),[quote,setQuote]=useState(''),[topics,setTopics]=useState('');
+ const [confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ useEffect(()=>{let active=true;void Promise.all([fetchMiloBrand(org),fetchMiloSources(org)]).then(([value,result])=>{if(active){setBrand(value);setSources(result.sources);}}).catch(error=>{if(active)setMessage(error.message);});return()=>{active=false;};},[org]);
+ const source=sources.find(item=>item.id===sourceId);
+ const validQuote=!!source&&!!quote.trim()&&source.content.includes(quote.trim());
+ function addProof(){if(!brand||!source||!confirmed||!validQuote)return;const proof:MiloProof={id:crypto.randomUUID(),source_id:source.id,revision:source.revision,quote:quote.trim(),...(source.product_id?{product_id:source.product_id}:{}),objection_topics:topics.split(',').map(topic=>topic.trim()).filter(Boolean)};setBrand({...brand,proof_points:[...brand.proof_points,proof]});setQuote('');setTopics('');setConfirmed(false);setMessage('Proof added locally. Save campaign identity to confirm this fact for Milo.');}
+ async function save(event:FormEvent){event.preventDefault();if(!brand||busy)return;setBusy(true);setMessage('');try{setBrand(await saveMiloBrand(org,{...brand,banned_terms:brand.banned_terms.map(term=>term.trim()).filter(Boolean),competitor_names:brand.competitor_names.map(term=>term.trim()).filter(Boolean)}));setMessage('Campaign identity saved. Proof was checked against current source revisions.');}catch(error){setMessage(error instanceof Error?error.message:'Save failed');try{setSources((await fetchMiloSources(org)).sources);}catch{ /* Keep entered configuration available for correction. */ }}finally{setBusy(false);}}
+ return <section className="space-y-5 border-t border-border pt-8"><header><h3 className="text-lg font-medium">Milo campaign identity</h3><p className="mt-2 text-xs text-text-muted">Define the audience and confirm the facts Milo may use in campaign claims. Buyer objections supply pain points; confirmed brand sources supply proof.</p></header>
+ {message&&<p role="status" className="rounded-lg border border-border p-3 text-xs">{message}</p>}
+ {brand&&<form onSubmit={save} className="space-y-5 text-xs">
+  <label className="block">Default campaign language<select className={input} value={brand.campaign_language} onChange={event=>setBrand({...brand,campaign_language:event.target.value})}><option value="en">English</option><option value="ru">Russian</option><option value="uz">Uzbek</option></select></label>
+  <fieldset className="space-y-3"><legend className="font-medium">Target personas</legend>{brand.personas.map((persona,index)=><div key={persona.id} className="space-y-2 rounded-lg border border-border p-3"><label className="block">Persona name<input className={input} required value={persona.name} onChange={event=>setBrand({...brand,personas:brand.personas.map((item,i)=>i===index?{...item,name:event.target.value}:item)})}/></label><label className="block">Who they are and what they need<textarea className={input} rows={2} required value={persona.description} onChange={event=>setBrand({...brand,personas:brand.personas.map((item,i)=>i===index?{...item,description:event.target.value}:item)})}/></label><button type="button" className={button} onClick={()=>setBrand({...brand,personas:brand.personas.filter((_,i)=>i!==index)})}>Remove persona</button></div>)}<button type="button" className={button} onClick={()=>setBrand({...brand,personas:[...brand.personas,{id:crypto.randomUUID(),name:'',description:''}]})}>Add persona</button></fieldset>
+  <fieldset className="space-y-3"><legend className="font-medium">Owner-confirmed proof points</legend>{brand.proof_points.map((proof,index)=><div key={proof.id??`${proof.source_id}:${index}`} className="rounded-lg border border-border p-3"><p className="whitespace-pre-wrap">{proof.quote}</p><p className="mt-1 break-all text-text-muted">{sources.find(item=>item.id===proof.source_id)?.title??proof.source_id} · revision {proof.revision}{sources.find(item=>item.id===proof.source_id)?.revision!==proof.revision?' · Reconfirm against the current source':''}</p><p className="mt-1 text-text-muted">Objection topics: {proof.objection_topics?.join(', ')||'All applicable topics'}</p><button type="button" className={`${button} mt-2`} onClick={()=>setBrand({...brand,proof_points:brand.proof_points.filter((_,i)=>i!==index)})}>Remove proof point</button></div>)}
+   <div className="space-y-3 rounded-lg bg-[#f4f4f5] p-3"><label className="block">Current brand source<select className={input} value={sourceId} onChange={event=>{setSourceId(event.target.value);setQuote('');setConfirmed(false);}}><option value="">Select a source</option>{sources.map(item=><option key={item.id} value={item.id}>{item.title} · revision {item.revision}</option>)}</select></label>
+    {source&&<details><summary className="cursor-pointer">Read source content</summary><p className="mt-2 max-h-60 overflow-y-auto whitespace-pre-wrap text-text-secondary">{source.content}</p></details>}
+    <label className="block">Exact supporting quote<textarea className={input} rows={3} value={quote} onChange={event=>{setQuote(event.target.value);setConfirmed(false);}} placeholder="Paste the exact product fact from this source."/></label>
+    {quote&&!validQuote&&<p className="text-error">The quote must appear verbatim in the selected current source.</p>}
+    <label className="block">Relevant objection topics (optional, comma separated)<input className={input} value={topics} onChange={event=>setTopics(event.target.value)}/></label>
+    <label className="flex items-start gap-2"><input type="checkbox" checked={confirmed} onChange={event=>setConfirmed(event.target.checked)}/><span>I confirm this fact is accurate and approved for marketing claims.</span></label>
+    <button type="button" className={button} disabled={!confirmed||!validQuote} onClick={addProof}>Add confirmed proof</button>
+   </div>
+  </fieldset>
+  <div className="grid gap-3 sm:grid-cols-2"><label>Banned words or phrases (one per line)<textarea className={input} rows={4} value={brand.banned_terms.join('\n')} onChange={event=>setBrand({...brand,banned_terms:event.target.value.split('\n')})}/></label><label>Competitor names (one per line)<textarea className={input} rows={4} value={brand.competitor_names.join('\n')} onChange={event=>setBrand({...brand,competitor_names:event.target.value.split('\n')})}/></label></div>
+  <button className={`${button} bg-black text-white`} disabled={busy}>{busy?'Saving…':'Save campaign identity'}</button>
+ </form>}
+ </section>;
+}
