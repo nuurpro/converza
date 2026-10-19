@@ -1,6 +1,6 @@
 # Brand memory and HITL rollout
 
-Production is unchanged. `core/AGENTS.md` requires confirmation before production actions. Obtain approval after review and successful live evaluation.
+Production is unchanged. On 2026-10-19 the user requested keeping PR #4 as a draft. The current delivery ends at that draft PR; this procedure is for a separately authorized future deployment. `core/AGENTS.md` requires confirmation before production actions.
 
 ## Preflight
 

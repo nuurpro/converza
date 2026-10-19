@@ -1,6 +1,6 @@
 # Brand memory and HITL verification — 2026-10-19
 
-Implementation is ready for review on `codex/brand-memory-hitl`. Huawei authentication is verified using the existing Hermes deployment key. Production rollout remains gated.
+Implementation is ready for review on `codex/brand-memory-hitl`. Huawei authentication is verified using the existing Hermes deployment key. On 2026-10-19 the user requested keeping PR #4 as a draft; production rollout is excluded from this delivery.
 
 | Requirement | Implementation and evidence |
 | --- | --- |
@@ -24,9 +24,9 @@ Implementation is ready for review on `codex/brand-memory-hitl`. Huawei authenti
 - Huawei live checks: smoke passed, exact-output extraction **5/5**, actual indexer Atom extraction **1/1**, and customer-intent classification **8/8**. Earlier attempts included a Unicode exact-match miss and a provider permission response; these were not silently retried by the client. The latest complete extraction run passed every case. Source-span validation still rejects altered quotations rather than persisting them.
 - The former Huawei 401 was caused by an extra trailing character in Converza's local key copy. The exact existing Hermes key fixed it; no replacement or credential rotation was needed for MaaS. The working model is `deepseek-v4.1-flash`. A live run also exposed a missing model-facing JSON contract in the shared client; this is fixed and covered by a red/green regression test. Strict local schema and source-span validation remain enforced.
 
-## Outstanding gates
+## Review and future deployment limitations
 
 - Docker Desktop daemon is unavailable locally; images have not been built or started. A local startup attempt on 2026-10-19 failed while binding its `dockerInference` Unix socket (address already in use / invalid filename). The engine stopped before readiness. The task-started Desktop processes were closed; no factory reset, socket deletion or Docker configuration change was attempted.
-- Production migrations, backfill and restarts have not been run. Follow [the rollout procedure](brand-memory-rollout.md) after explicit approval.
+- Production migrations, backfill and restarts have not been run, as requested. The [rollout procedure](brand-memory-rollout.md) is retained for a separately authorized deployment.
 - Historical hardcoded credentials in the existing Sleyz Kubernetes manifest were replaced with Secret references. Rotate those previously exposed credentials before deployment; removing source values does not revoke them.
 - The workspace contained substantial preexisting consolidation changes. Unrelated root deletions and archived support/media applications are excluded from this feature commit. Supporting consolidated core and active agent files are included because the new runtime imports them.
