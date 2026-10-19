@@ -1,6 +1,6 @@
 # Brand memory and HITL verification — 2026-10-19
 
-Implementation is ready for review on `codex/brand-memory-hitl`. Production rollout and live Huawei quality verification remain gated.
+Implementation is ready for review on `codex/brand-memory-hitl`. Huawei authentication is verified using the existing Hermes deployment key. Production rollout remains gated.
 
 | Requirement | Implementation and evidence |
 | --- | --- |
@@ -15,16 +15,17 @@ Implementation is ready for review on `codex/brand-memory-hitl`. Production roll
 
 ## Executed checks
 
-- Core: **132 tests passed, no skips**, including real PostgreSQL memory and workflow tests against disposable local databases on ports 55440 and 55439.
+- Core: **133 tests passed, no skips**, including real PostgreSQL memory and workflow tests against disposable local databases. The latest run used ports 15440 and 15439 because Windows denied binding the original test ports after WSL startup.
 - Workflow deterministic eval: **39/39**; memory deterministic eval: **5/5**.
 - Web: **14 tests**, TypeScript check and Next.js production build passed.
 - TypeScript qualifier: **2 gateway tests**, TypeScript check and build passed; npm audit reported zero vulnerabilities after dependency updates.
 - Local QA backfill: inspected five canonical rows, changed zero already-current sources, exit 0. Before/after snapshots, progress log and CSV were generated outside the repository. This proves idempotency on the fixture, not production data.
 - Browser QA used actual routes and PostgreSQL migrations with fixture authentication, extraction and delivery. These fixtures do not prove live provider or channel connectivity.
+- Huawei live checks: smoke passed, exact-output extraction **5/5**, actual indexer Atom extraction **1/1**, and customer-intent classification **8/8**. Earlier attempts included a Unicode exact-match miss and a provider permission response; these were not silently retried by the client. The latest complete extraction run passed every case. Source-span validation still rejects altered quotations rather than persisting them.
+- The former Huawei 401 was caused by an extra trailing character in Converza's local key copy. The exact existing Hermes key fixed it; no replacement or credential rotation was needed for MaaS. The working model is `deepseek-v4.1-flash`. A live run also exposed a missing model-facing JSON contract in the shared client; this is fixed and covered by a red/green regression test. Strict local schema and source-span validation remain enforced.
 
 ## Outstanding gates
 
-- Huawei connects at the supplied `/v2` endpoint, but the last live smoke/extraction attempts received HTTP 401 `ModelArts.81003` (invalid authorization header). No successful live inference or live quality score is claimed. A corrected deployment API key is required.
 - Docker Desktop daemon is unavailable locally; images have not been built or started. A local startup attempt on 2026-10-19 failed while binding its `dockerInference` Unix socket (address already in use / invalid filename). The engine stopped before readiness. The task-started Desktop processes were closed; no factory reset, socket deletion or Docker configuration change was attempted.
 - Production migrations, backfill and restarts have not been run. Follow [the rollout procedure](brand-memory-rollout.md) after explicit approval.
 - Historical hardcoded credentials in the existing Sleyz Kubernetes manifest were replaced with Secret references. Rotate those previously exposed credentials before deployment; removing source values does not revoke them.

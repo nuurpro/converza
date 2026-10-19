@@ -13,8 +13,14 @@ There is no provider fallback or model default.
 The configured Singapore deployment uses
 `HUAWEI_MAAS_BASE_URL=https://api-ap-southeast-1.modelarts-maas.com/v2`.
 Set this explicitly: the historical default hostname failed DNS verification.
-An HTTP 401 means the URL connected but deployment authentication failed;
-verify the MaaS API key before retrying the paid evaluation lane.
+The configured model is `deepseek-v4.1-flash`, matching the working Hermes
+deployment (without an extra `deepseek-` prefix).
+
+When diagnosing HTTP 401, compare the exact saved values with an existing working
+client before requesting a replacement key. In this workspace the core key had
+one extra trailing character compared with Hermes's existing key. Copying that
+existing value exactly fixed authentication; no new key was needed. Keep all
+credential comparisons local and never print the key or authorization header.
 
 From the repository root in PowerShell:
 
@@ -43,7 +49,9 @@ unresolved conversations, identity edits, and stale price rejection.
   an object/array, optionally checks JSON Schema and/or a Pydantic/callable
   validator. Invalid, truncated, or scalar outputs fail closed. It does not rely
   on provider-specific JSON response-format support. The caller supplies a JSON
-  instruction and the domain schema; exact quote/domain validation belongs to
+  domain instruction and schema. The shared client supplies the JSON-only output
+  instruction and includes any JSON Schema in the model request as well as
+  validating the response locally. Exact quote/domain validation belongs to
   the indexer before persistence.
 - `stream(...)` yields SDK chunks. `core.llm.stream_gemini` retains the legacy
   text-token generator name. `legacy_complete` adapts existing Anthropic-shaped

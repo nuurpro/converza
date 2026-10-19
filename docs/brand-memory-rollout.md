@@ -16,7 +16,7 @@ python evals/memory/run.py --live
 python -m services.workflow.evals.run --live
 ```
 
-All four commands must exit 0; live eval thresholds are 100%. The current key has not passed authentication. Check inference-service endpoint access separately if running the optional TypeScript qualifier.
+All four commands must exit 0; live eval thresholds are 100%. The existing Hermes key now passes authentication after correcting a trailing character in Converza's local copy and matching the model name `deepseek-v4.1-flash`. Check inference-service endpoint access separately if running the optional TypeScript qualifier.
 
 ## Approved rollout sequence
 

@@ -91,6 +91,22 @@ class HuaweiTests(unittest.IsolatedAsyncioTestCase):
         client = self.make(lambda request: httpx.Response(200, json=completion('{"name":"valid"}')))
         self.assertEqual(await client.complete_json(MESSAGES), {"name": "valid"})
 
+    async def test_json_contract_reaches_model_without_mutating_caller_messages(self):
+        schema = {"type": "object", "properties": {"kind": {"enum": ["customer_copy", "internal_recommendation"]}}, "required": ["kind"], "additionalProperties": False}
+        messages = [{"role": "system", "content": "Classify the requested output."}, {"role": "user", "content": "Draft a launch email."}]
+        original = json.loads(json.dumps(messages))
+        def handler(request):
+            sent = json.loads(request.content)["messages"]
+            instructions = "\n".join(row["content"] for row in sent if row["role"] == "system")
+            self.assertIn("JSON", instructions)
+            self.assertIn(json.dumps(schema, ensure_ascii=False), instructions)
+            self.assertIn("Classify the requested output.", instructions)
+            self.assertEqual(sent[-1], messages[-1])
+            return httpx.Response(200, json=completion('{"kind":"customer_copy"}'))
+        client = self.make(handler)
+        self.assertEqual(await client.complete_json(messages, schema=schema), {"kind": "customer_copy"})
+        self.assertEqual(messages, original)
+
     async def test_rejects_vision_and_provider_override_without_network(self):
         handler = AsyncMock()
         client = self.make(handler)

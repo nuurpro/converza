@@ -136,7 +136,14 @@ class HuaweiLLM:
 
     async def complete_json(self, messages, *, operation="extraction", schema=None, validator=None, **kwargs):
         # Parse locally: JSON response_format support varies by Huawei deployment.
-        text = await self.complete_text(messages, operation=operation, **kwargs)
+        contract = (
+            "Return only valid JSON, without Markdown fences or surrounding commentary. "
+            "When returning quoted source spans, copy their exact characters without translation, "
+            "transliteration, spelling correction or Unicode normalization."
+        )
+        if schema is not None:
+            contract += "\nThe JSON output must satisfy this JSON Schema:\n" + json.dumps(schema, ensure_ascii=False)
+        text = await self.complete_text([{"role": "system", "content": contract}, *messages], operation=operation, **kwargs)
         try:
             data = json.loads(text)
             if not isinstance(data, (dict, list)):
