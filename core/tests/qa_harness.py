@@ -38,7 +38,29 @@ def jwt():
 TOKEN=os.environ.get('QA_SESSION_TOKEN') or jwt()
 
 
+def validate_qa_dsn(dsn):
+    from psycopg2.extensions import parse_dsn
+    config=parse_dsn(dsn)
+    loopback=('127.0.0.1','localhost','::1')
+    if (config.get('host') not in loopback or config.get('hostaddr',config['host']) not in loopback
+            or config.get('service') or not config.get('dbname','').startswith('test_converza')):
+        raise ValueError('QA harness requires an explicitly named disposable loopback test_converza database')
+
+
+async def qa_sleyz_model(messages, **kwargs):
+    """Only the browser fixture uses this stub; production Huawei is untouched."""
+    properties=(kwargs.get('schema') or {}).get('properties',{})
+    if 'intent_score' in properties:
+        return {'intent_score':.9,'product_query':'founder-course','quantity':1,'language':'en','objections':[]}
+    if 'citations' in properties:
+        return {'citations':[],'acknowledgement':'thanks','next_step':'buy','include_price':True,'include_stock':True,'include_description':True}
+    if 'rule_type' in properties:
+        return {'rule':'','rule_type':'style','scope':'none','supporting_spans':[]}
+    raise ValueError('Unknown QA inference contract')
+
+
 def bootstrap(dsn):
+    validate_qa_dsn(dsn)
     os.environ['CONVERZA_WORKFLOW_TEST_DSN']=dsn
     import test_workflow_postgres
     test_workflow_postgres.DSN=dsn
@@ -50,6 +72,12 @@ def bootstrap(dsn):
             q.execute('INSERT INTO auth.users(id) VALUES(%s) ON CONFLICT DO NOTHING',(OWNER,))
             q.execute((CORE/'migrations/002_service_role_switchboard_policies.sql').read_text())
             q.execute((CORE/'migrations/003_onboarding_paywall.sql').read_text())
+            q.execute('''CREATE TABLE IF NOT EXISTS tg_connections(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                org_id uuid REFERENCES orgs(id),bot_token text)''')
+            q.execute((CORE/'migrations/006_telegram_destinations.sql').read_text())
+            q.execute("SELECT to_regclass('sleyz_inbound')")
+            if not q.fetchone()[0]:
+                q.execute((CORE/'migrations/007_sleyz_inbound.sql').read_text())
             q.execute('''ALTER TABLE brand_passports ADD COLUMN IF NOT EXISTS tone text,
               ADD COLUMN IF NOT EXISTS industry text,ADD COLUMN IF NOT EXISTS core_offer text,
               ADD COLUMN IF NOT EXISTS target_audience text,ADD COLUMN IF NOT EXISTS target_location text,
@@ -57,7 +85,7 @@ def bootstrap(dsn):
             q.execute('INSERT INTO orgs(id) VALUES(%s) ON CONFLICT DO NOTHING',(ORG,))
             q.execute("INSERT INTO brand_passports(id,org_id,owner_user_id,brand_name,tone,core_offer,target_audience,target_location,onboarding_completed_at,paywall_status,voice_rules,negative_constraints) VALUES(%s,%s,%s,'Nova Training','Warm and direct','Practical founder training','Early-stage founders','Tashkent',now(),'paid',%s,%s) ON CONFLICT DO NOTHING",(PASSPORT,ORG,OWNER,Json(['Use clear examples']),Json(['No guaranteed revenue claims'])))
             q.execute('INSERT INTO prospects(id,org_id) VALUES(%s,%s) ON CONFLICT DO NOTHING',(PROSPECT,ORG))
-            q.execute("INSERT INTO brand_products(id,org_id,name,description,price,currency) VALUES(%s,%s,'Founder course','Live training with two coaching sessions',100,'USD') ON CONFLICT DO NOTHING",(PRODUCT,ORG))
+            q.execute("INSERT INTO brand_products(id,org_id,name,description,price,currency,sku,stock_count,checkout_url_template) VALUES(%s,%s,'Founder course','Live training with two coaching sessions',100,'USD','founder-course',3,'https://merchant.example/checkout?sku={sku}&quantity={quantity}') ON CONFLICT DO NOTHING",(PRODUCT,ORG))
             q.execute("INSERT INTO brand_knowledge(id,org_id,kind,title,content) VALUES(%s,%s,'faq','Course delivery','Training starts on Monday. Two coaching sessions are included.') ON CONFLICT DO NOTHING",(FAQ,ORG))
     for draft_id,agent,inbound,answer,prospect in ((SLEYZ,'sleyz','This sounds expensive. What is included?','The founder course is100 USD and includes two coaching sessions. What is your main growth goal?',PROSPECT),(MILO,'milo','Write a launch announcement for our founder course.','Build a clearer growth plan with Nova Training. Join the founder course and get two coaching sessions.',None)):
         existing=client.table('drafts').select('*').eq('id',draft_id).execute().data
@@ -118,6 +146,18 @@ def create_app():
             else: atoms=[{'kind':'fact','text':source['content']}]
             return {'summary':source['content'][:150],'atoms':atoms}
         return {'processed':await IndexWorker(client,extraction).run_once(100)}
+    @app.post('/qa/sleyz-process')
+    async def qa_sleyz_process():
+        from services.memory import MemoryStore
+        from services.sleyz.worker import SleyzWorker
+        from lib.repository import SupabaseRepository
+        async def context_loader(job,query):
+            memory=MemoryStore(client)
+            context=memory.context(job['org_id'],query)
+            context['products']=memory.products(job['org_id'])
+            return context
+        processed=await SleyzWorker(SupabaseRepository(client),model=qa_sleyz_model,context_loader=context_loader).run_once()
+        return {'processed':processed}
     return app
 
 

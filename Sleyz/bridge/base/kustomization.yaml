@@ -6,5 +6,6 @@ resources:
     - 0-converza-sales-namespace.yaml
     - default-network-policy.yaml
     - sales-bot-deployment.yaml
+    - sales-worker-deployment.yaml
     - sales-bot-expose.yaml
     - sales-bot-service.yaml

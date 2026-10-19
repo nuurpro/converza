@@ -4,7 +4,7 @@ from typing import Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from starlette.concurrency import run_in_threadpool
 
 
@@ -15,6 +15,22 @@ class ProductInput(BaseModel):
     price: Decimal = Field(ge=0, allow_inf_nan=False, max_digits=18, decimal_places=6)
     currency: str = Field(pattern=r"^[A-Z]{3}$")
     metadata: dict[str, Any] = Field(default_factory=dict)
+    sku: str | None = Field(default=None, min_length=1, max_length=200)
+    stock_count: StrictInt | None = Field(default=None, ge=0)
+    checkout_url_template: str | None = Field(default=None, max_length=2000)
+
+    @field_validator('checkout_url_template')
+    @classmethod
+    def checkout_template(cls, value):
+        from services.sleyz.tools import validate_checkout_template
+        return validate_checkout_template(value)
+
+    @field_validator('sku')
+    @classmethod
+    def canonical_sku(cls, value):
+        if value is not None and (not value.strip() or value != value.strip()):
+            raise ValueError('SKU must be nonempty and have no surrounding whitespace')
+        return value
 
 
 class KnowledgeInput(BaseModel):

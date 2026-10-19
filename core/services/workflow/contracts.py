@@ -27,6 +27,13 @@ class DraftRow(TypedDict):
     delivery_receipt: NotRequired[dict[str, Any] | None]
     delivered_at: NotRequired[str | None]
     resolved_at: NotRequired[str | None]
+    sleyz_artifact: NotRequired[dict[str, Any] | None]
+    simulated: NotRequired[bool]
+    platform: NotRequired[Literal['telegram', 'instagram'] | None]
+    inbound_id: NotRequired[str | None]
+    superseded_by: NotRequired[str | None]
+    learning_status: NotRequired[Literal['pending','running','completed','skipped','failed'] | None]
+    learning_error: NotRequired[str | None]
 
 
 class DurableEvent(TypedDict):

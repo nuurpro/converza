@@ -16,6 +16,7 @@ import {
   getAgentChatConfig,
 } from "@/lib/data/workspace";
 import { sendAgentMessage } from "@/lib/api/workspace";
+import { SleyzInbox } from "@/components/workspace/SleyzInbox";
 
 function isAgentId(value: string): value is AgentId {
   return value === "milo" || value === "sleyz" || value === "vea";
@@ -85,8 +86,9 @@ export default function AgentChatPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="flex h-full flex-col overflow-y-auto bg-white">
       <AgentBackLink />
+      {activeAgentId === "sleyz" && <SleyzInbox />}
       {messages.length === 0 ? (
         <ChatEmptyState
           eyebrow={config.eyebrow}

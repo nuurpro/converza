@@ -93,7 +93,8 @@ def rank_sources(rows: list[dict], query: str, *, org_id: str, limit: int = 8,
         if not set(query_tokens).intersection(tokens):
             continue
         age = max(0.0, (now - _timestamp(item.get('updated_at'), now)).total_seconds() / 86400)
-        adjusted = float(score) * (0.25 + 0.75 * 2 ** (-age / 30))
+        priority = 2 if item.get('kind') == 'correction' else 1
+        adjusted = float(score) * priority * (0.25 + 0.75 * 2 ** (-age / 30))
         ranked.append((adjusted, item))
     ranked.sort(key=lambda x: (-x[0], str(x[1].get('id'))))
     result = []
@@ -111,7 +112,8 @@ def rank_sources(rows: list[dict], query: str, *, org_id: str, limit: int = 8,
         remaining -= len(str(atoms))
         result.append({'source_id': item['id'], 'kind': item['kind'], 'title': item.get('title', ''),
                        'content': content, 'summary': summary, 'atoms': atoms,
-                       'revision': item['revision'], 'updated_at': item.get('updated_at'), 'score': score})
+                       'revision': item['revision'], 'updated_at': item.get('updated_at'), 'score': score,
+                       'metadata': item.get('metadata') or {}})
     return result
 
 
@@ -186,6 +188,13 @@ class MemoryStore:
 
     @staticmethod
     def _validate_product(values: dict) -> None:
+        if 'stock_count' in values and values['stock_count'] is not None and (type(values['stock_count']) is not int or values['stock_count'] < 0):
+            raise ValueError('Stock count must be a nonnegative integer or unknown')
+        if 'sku' in values and values['sku'] is not None and (not isinstance(values['sku'], str) or not values['sku'].strip() or values['sku'] != values['sku'].strip()):
+            raise ValueError('SKU must be nonempty without surrounding whitespace')
+        if 'checkout_url_template' in values:
+            from services.sleyz.tools import validate_checkout_template
+            validate_checkout_template(values['checkout_url_template'])
         if 'price' in values and values['price'] is not None:
             try:
                 price = Decimal(str(values['price']))
@@ -215,10 +224,10 @@ class MemoryStore:
     def create_product(self, org_id: str, payload: dict) -> dict:
         if not str(payload.get('name') or '').strip():
             raise ValueError('Product name is required')
-        return self._create('brand_products', org_id, payload, {'name', 'description', 'price', 'currency', 'metadata'})
+        return self._create('brand_products', org_id, payload, {'name', 'description', 'price', 'currency', 'metadata', 'sku', 'stock_count', 'checkout_url_template'})
 
     def update_product(self, org_id: str, product_id: str, payload: dict) -> dict:
-        return self._update('brand_products', org_id, product_id, payload, {'name', 'description', 'price', 'currency', 'metadata'})
+        return self._update('brand_products', org_id, product_id, payload, {'name', 'description', 'price', 'currency', 'metadata', 'sku', 'stock_count', 'checkout_url_template'})
 
     def delete_product(self, org_id: str, product_id: str) -> bool:
         return bool(self.client.rpc('memory_forget', {'p_org': org_id, 'p_kind': 'product', 'p_id': product_id}).execute().data)
@@ -234,7 +243,7 @@ class MemoryStore:
             row['summary'] = source.get('summary', '') if source.get('indexed_revision') == source.get('revision') else ''
             row['atoms'] = source.get('atoms', []) if source.get('indexed_revision') == source.get('revision') else []
         for source in sources.values():
-            if (source['kind'] == 'objection' or source.get('metadata', {}).get('origin') == 'passport') and not source.get('deleted_at'):
+            if (source['kind'] in ('objection', 'correction') or source.get('metadata', {}).get('origin') == 'passport') and not source.get('deleted_at'):
                 rows.append({**source, 'source_id': source['id'], 'read_only': True})
         return rows
 

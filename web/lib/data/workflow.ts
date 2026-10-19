@@ -1,4 +1,6 @@
 export type DraftState = "PENDING_DRAFT" | "AWAITING_HITL" | "APPROVED" | "EDITED" | "REJECTED" | "PUBLISHED";
+import type { SleyzDraftArtifact, SleyzPlatform } from "./sleyz";
+
 export interface DraftRow {
   id: string;
   org_id: string;
@@ -20,6 +22,12 @@ export interface DraftRow {
   updated_at?: string;
   delivered_at?: string | null;
   resolved_at?: string | null;
+  sleyz_artifact?: SleyzDraftArtifact | null;
+  simulated?: boolean;
+  platform?: SleyzPlatform | null;
+  superseded_by?: string | null;
+  learning_status?: "pending" | "running" | "completed" | "failed" | "skipped" | null;
+  learning_error?: string | null;
 }
 export interface MessageRow { id: string; [key: string]: unknown }
 export interface WorkspaceState {

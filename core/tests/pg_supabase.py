@@ -42,6 +42,7 @@ class PgQuery:
     def gt(self,key,value): self.filters.append((key,'>',value)); return self
     def gte(self,key,value): self.filters.append((key,'>=',value)); return self
     def lt(self,key,value): self.filters.append((key,'<',value)); return self
+    def lte(self,key,value): self.filters.append((key,'<=',value)); return self
     def is_(self,key,value): self.filters.append((key,'IS',None if value=='null' else value)); return self
     def order(self,key,desc=False,**kwargs): self.sort.append((key,desc)); return self
     def limit(self,n): self.maximum=n; return self

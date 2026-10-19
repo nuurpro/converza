@@ -472,3 +472,7 @@ async def update_brand_passport(
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+from services.sleyz.routes import create_sleyz_router
+app.include_router(create_sleyz_router(lambda: get_switchboard_repo(), require_authenticated_user, lambda *args: _assert_user_owns_org(*args)))

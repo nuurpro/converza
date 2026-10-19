@@ -181,17 +181,20 @@ class SalesWebhookTests(unittest.TestCase):
         from Sleyz.routers import webhook
         self.webhook = webhook
         self.client = TestClient(app)
-        self.message = {"message": {"text": "hello", "from": {"id": 11, "is_bot": False}, "chat": {"id": 42, "type": "private"}}}
+        self.message = {"message": {"message_id": 7, "date": 1000, "text": "hello", "from": {"id": 11, "is_bot": False}, "chat": {"id": 42, "type": "private"}}}
 
     def tearDown(self):
         self.client.close()
 
     def test_authentication_required_before_enqueueing(self):
-        with patch.dict(os.environ, {"SALES_WEBHOOK_SECRET": "test-secret"}), patch.object(self.webhook, "handle_direct_message", AsyncMock()) as handler:
+        with patch.dict(os.environ, {"SALES_WEBHOOK_SECRET": "test-secret"}), patch.object(self.webhook.db, "get_org_by_sales_token", return_value={"org_id":"org-a"}), patch.object(self.webhook, "accept_inbound", AsyncMock()) as accept:
             self.assertEqual(self.client.post("/webhook", json=self.message).status_code, 403)
+            accept.assert_not_awaited()
             response = self.client.post("/webhook", headers={"X-Telegram-Bot-Api-Secret-Token": "test-secret"}, json=self.message)
         self.assertEqual(response.status_code, 200)
-        handler.assert_awaited_once_with(11, None, None, 42, "hello")
+        accept.assert_awaited_once()
+        self.assertEqual(accept.await_args.args[0]["customer_id"], "11")
+        self.assertEqual(accept.await_args.args[0]["tg_chat_id"], 42)
 
     def test_bot_and_group_messages_do_not_become_buyer_conversations(self):
         with patch.dict(os.environ, {"SALES_WEBHOOK_SECRET": "test-secret"}), patch.object(self.webhook, "handle_direct_message", AsyncMock()) as handler:

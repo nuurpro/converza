@@ -1,3 +1,5 @@
+import type { SleyzDraftArtifact } from "./sleyz";
+
 export type AgentId = "milo" | "sleyz" | "vea";
 
 export interface WorkspaceAgent {
@@ -57,6 +59,12 @@ export interface HitlCardData {
   resolvedAt?: string | null;
   canResolve?: boolean;
   canDeliver?: boolean;
+  canRefresh?: boolean;
+  artifact?: SleyzDraftArtifact | null;
+  simulated?: boolean;
+  supersededBy?: string | null;
+  learningStatus?: string | null;
+  learningError?: string | null;
 }
 
 export interface SquadMessageData {

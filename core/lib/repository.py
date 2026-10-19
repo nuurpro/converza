@@ -68,8 +68,13 @@ class InMemoryRepository:
                 raise KeyError(draft_id)
             if row['revision'] != expected_revision:
                 raise WorkflowConflict('Draft revision conflict')
+            if action in ('begin_delivery', 'claim_delivery', 'publish', 'resolve') and (row.get('simulated') or row.get('superseded_by')):
+                raise WorkflowConflict('Simulated or superseded drafts cannot be delivered or resolved')
             updated = apply_transition(row, action, edited_content=edited_content, receipt=receipt, error=error)
             row.update(updated)
+            if action == 'edit':
+                from services.sleyz.store import enqueue_approved_edit
+                enqueue_approved_edit(self, row)
             self._event(org_id, 'draft_transition', row)
             if action in ('approve', 'edit', 'reject'):
                 run_id = await self.get_run_id_for_draft(draft_id)

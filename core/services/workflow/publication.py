@@ -7,6 +7,59 @@ from starlette.concurrency import run_in_threadpool
 from .state import WorkflowConflict
 
 
+async def claim_delivery(*, repo, org_id, draft_id, attempt_id):
+    """Claim this transport exactly once while tolerating learning revisions."""
+    for _ in range(3):
+        current = await repo.get_draft(draft_id)
+        if not current or current['org_id'] != org_id:
+            raise KeyError(draft_id)
+        if (current['status'] not in ('APPROVED', 'EDITED')
+                or current.get('delivery_attempt_id') != attempt_id
+                or current.get('delivery_status') != 'sending'
+                or current.get('delivery_claimed_at')):
+            raise WorkflowConflict('Delivery already started or attempt changed; reconcile its receipt')
+        try:
+            # Each execution needs a fresh key. Reusing a cached claim response
+            # would let the same begin request authorize a second transport.
+            return await repo.transition_draft(org_id, draft_id, 'claim_delivery', current['revision'],
+                str(uuid.uuid4()), receipt={'attempt_id':attempt_id})
+        except WorkflowConflict:
+            continue
+    raise WorkflowConflict('Delivery claim requires reconciliation after concurrent updates')
+
+
+async def finish_delivery(*, repo, org_id, draft_id, attempt_id, action,
+                          idempotency_key, receipt=None, error=None):
+    """Persist a transport outcome despite unrelated learning revisions.
+
+    The transport claim, rather than a stale whole-draft revision, identifies
+    the authorized send. Each write still uses normal workflow revision CAS.
+    """
+    if action not in ('publish', 'delivery_failed', 'delivery_ambiguous'):
+        raise ValueError('A delivery outcome is required')
+    for _ in range(3):
+        current = await repo.get_draft(draft_id)
+        if not current or current['org_id'] != org_id:
+            raise KeyError(draft_id)
+        if current.get('delivery_attempt_id') != attempt_id:
+            raise WorkflowConflict('Delivery attempt changed; reconcile its receipt')
+        if current['status'] == 'PUBLISHED':
+            if (current.get('delivery_receipt') or {}).get('attempt_id') == attempt_id:
+                return current
+            raise WorkflowConflict('Published receipt belongs to another attempt')
+        if (current['status'] not in ('APPROVED', 'EDITED')
+                or current.get('delivery_status') != 'sending'
+                or not current.get('delivery_claimed_at')):
+            raise WorkflowConflict('Delivery claim is no longer active; reconcile its receipt')
+        try:
+            return await repo.transition_draft(org_id, draft_id, action, current['revision'],
+                idempotency_key, receipt=receipt, error=error)
+        except WorkflowConflict:
+            # Reload and revalidate the send claim before retrying a CAS conflict.
+            continue
+    raise WorkflowConflict('Delivery outcome requires reconciliation after concurrent updates')
+
+
 async def load_telegram_target(client, org_id, draft):
     """Load tenant-scoped delivery credentials and destination, never caller input."""
     if draft.get('org_id') != org_id or not draft.get('prospect_id'):
@@ -32,6 +85,10 @@ async def deliver_telegram_draft(*, repo, org_id, draft_id, expected_revision, i
     draft = await repo.get_draft(draft_id)
     if not draft or draft['org_id'] != org_id:
         raise KeyError(draft_id)
+    if draft['status'] == 'PUBLISHED':
+        return draft
+    if draft.get('delivery_status') in ('sending', 'ambiguous'):
+        raise WorkflowConflict('Delivery requires reconciliation before retry')
     try:
         target = await load_telegram_target(repo.client,org_id,draft)
     except ValueError as exc:
@@ -48,21 +105,13 @@ async def publish_telegram(*, repo, org_id, draft_id, expected_revision,
         raise KeyError(draft_id)
     # Stable attempt IDs make request retries safe and bind receipts to a send.
     attempt_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f'{org_id}:{draft_id}:{idempotency_key}'))
-    sending = await repo.transition_draft(org_id, draft_id, 'begin_delivery', expected_revision,
+    await repo.transition_draft(org_id, draft_id, 'begin_delivery', expected_revision,
         idempotency_key + ':begin', receipt={'attempt_id':attempt_id})
     current = await repo.get_draft(draft_id)
     if current['status'] == 'PUBLISHED':
         return current
     # A repeated begin key must never resend an in-flight or ambiguous request.
-    if current['revision'] != sending['revision'] or current['delivery_status'] != 'sending':
-        raise WorkflowConflict('Delivery attempt requires reconciliation')
-    # begin_delivery idempotency cannot distinguish first execution from a retry.
-    # A second one-time CAS advances the attempt before transport. Only its winner sends.
-    try:
-        claimed = await repo.transition_draft(org_id, draft_id, 'claim_delivery', sending['revision'],
-            str(uuid.uuid4()), receipt={'attempt_id':attempt_id})
-    except WorkflowConflict:
-        raise WorkflowConflict('Delivery already started; reconcile its receipt')
+    await claim_delivery(repo=repo, org_id=org_id, draft_id=draft_id, attempt_id=attempt_id)
     transport = client or httpx.AsyncClient(timeout=15)
     try:
         payload = {'chat_id':int(chat_id), 'text':draft.get('final_content') or draft['draft_content']}
@@ -79,14 +128,14 @@ async def publish_telegram(*, repo, org_id, draft_id, expected_revision,
             raise ValueError('Telegram success response lacks a matching receipt')
     except Exception as exc:
         definitive = isinstance(exc, TelegramRejected) or (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500)
-        return await repo.transition_draft(org_id, draft_id,
-            'delivery_failed' if definitive else 'delivery_ambiguous', claimed['revision'],
-            idempotency_key + ':failure', error=type(exc).__name__)
+        return await finish_delivery(repo=repo, org_id=org_id, draft_id=draft_id, attempt_id=attempt_id,
+            action='delivery_failed' if definitive else 'delivery_ambiguous',
+            idempotency_key=idempotency_key + ':failure', error=type(exc).__name__)
     finally:
         if client is None:
             await transport.aclose()
-    return await repo.transition_draft(org_id, draft_id, 'publish', claimed['revision'],
-        idempotency_key + ':receipt', receipt={'channel':'telegram','message_id':result['message_id'],
+    return await finish_delivery(repo=repo, org_id=org_id, draft_id=draft_id, attempt_id=attempt_id,
+        action='publish', idempotency_key=idempotency_key + ':receipt', receipt={'channel':'telegram','message_id':result['message_id'],
             'chat_id':int(chat_id),'attempt_id':attempt_id})
 
 

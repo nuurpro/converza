@@ -28,5 +28,6 @@ Seeded flows:
 - AWAITING_HITL Sleyz reply linked to an actual test prospect, plus an AWAITING_HITL Milo announcement.
 - After approving/editing a draft through the UI, call `POST /qa/publish/{draft_id}` to create a test delivery receipt through the same database transitions. The UI should receive PUBLISHED over SSE and expose explicit resolution only for the buyer-linked Sleyz draft.
 - `POST /qa/index` runs the actual leased queue worker with a deterministic exact-quote extractor. Inspect search, indexing status and forgetting in the UI.
+- The catalog fixture has SKU `founder-course`, three units in stock, and a merchant checkout template. On the SLEYZ agent page, simulate a buyer DM, then call `POST /qa/sleyz-process` to run the actual durable worker with validated deterministic sales inference. Review the HOT intent, current price, stock, and checkout link in the UI; approved simulated drafts expose no delivery or conversation-resolution controls.
 
 The real provider smoke is a separate configured command; mocked QA inference is not evidence of live Huawei connectivity. Stop the Python and Next processes when QA is complete. Test data is preserved in the disposable database for inspection; a fresh test database gives a fresh scenario.

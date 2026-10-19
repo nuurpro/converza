@@ -48,11 +48,11 @@ The context window is your only control surface over the model. Treat it as a de
 - If you can't state what gets measurably better and how you'll see it, that's a Confusion Protocol stop, not a license to build.
 - Wire in the trace. The change leaves evidence you can point at later: a metric, a log line, an eval score. Compute that produces no measurable, traceable result is theater.
 
-### LLM access — local Claude Code, not the API
+### LLM access — shared Huawei service
 
-- When the software we build needs to call an LLM, do NOT use an LLM API (Anthropic API, OpenAI API, any hosted inference endpoint) unless Julien explicitly instructs it. Route the call through the local Claude Code instead.
-- If no LLM service exists yet in the project, build one. Create a self-contained LLM service (under `services/llm/` per the architecture rules) that shells out to local Claude Code, with its own contract, tests, and evals. Every other service calls that contract, never an external API.
-- Always use the best available model by default unless Julien explicitly instructs otherwise. No silent downgrades to a cheaper or smaller model for cost.
+- Route all application inference through the existing `services.llm` contract, backed by the explicitly configured Huawei deployment. This includes SLEYZ classification, evidence selection, and approved-edit analysis.
+- Do not add direct provider calls or local Claude adapters. The approved SLEYZ plan confirms the shared Huawei integration and supersedes the historical local-Claude instruction.
+- Keep provider/model configuration server-side and preserve the shared client's validation, retries, and telemetry. No silent provider or model fallbacks.
 
 ### Tech choice — vanilla by default
 
