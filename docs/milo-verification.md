@@ -79,5 +79,7 @@ or LLM calls. Source-only packaging was independently tested under Python 3.11.
   is unverified because Docker Desktop's Linux daemon is unavailable. Clean
   source, pinned Python 3.11 runtime, API and native media tests provide separate
   evidence; they are not described as a Docker build.
+  A local `docker desktop start` attempt failed during backend initialization:
+  the `dockerInference` Unix socket could not bind. No Docker data was reset.
 - Production migration, historical extraction and service restarts require the
   separately authorized rollout in `milo-rollout.md`.
