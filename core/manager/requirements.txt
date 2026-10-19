@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+supabase
+httpx
+python-dotenv
+pydantic
+openai>=1.55,<3
+jsonschema>=4.23
+rank-bm25>=0.2.2

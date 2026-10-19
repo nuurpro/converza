@@ -1,0 +1,8 @@
+#! 0-converza-sales-namespace.yaml
+# Generated code, do not edit
+apiVersion: v1
+kind: Namespace
+metadata:
+    name: converza-sales
+    labels:
+        com.docker.compose.project: converza_sales

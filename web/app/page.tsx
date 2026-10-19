@@ -20,14 +20,12 @@ import {
   Plug,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import {useWorkspace} from "@/lib/hooks/useWorkspace";
 import { StatCard } from "@/components/workspace/AgentWorkspace";
 import { getDashboardStats, type DashboardStat, type SquadMessageData } from "@/lib/data/workspace";
 import {
-  createSquadEventSource,
   fetchDashboardStats,
-  isHitlDecisionMessage,
   mapSquadMessage,
-  parseSquadStreamEvent,
   resolveHitlDraft,
   type AgentRunStepRow,
 } from "@/lib/api/workspace";
@@ -47,6 +45,7 @@ interface Approval {
   title: string;
   body: string;
   impact: string;
+  revision: number;
 }
 
 const agentLabels: Record<string, string> = {
@@ -89,80 +88,33 @@ function ledgerEventFromStep(row: AgentRunStepRow): LedgerEvent {
   };
 }
 
-function approvalFromMessage(message: SquadMessageData): Approval | null {
-  if (!message.hitlCard || message.hitlCard.status !== "pending") return null;
-
-  return {
-    id: message.hitlCard.id,
-    eyebrow: `${message.sender} · ${message.timestamp}`,
-    title: message.text.includes("Video")
-      ? "Review generated video asset"
-      : "Review agent draft",
-    body: message.hitlCard.content,
-    impact: "Human approval required before use",
-  };
-}
-
 export default function DashboardPage() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [editingApprovalId, setEditingApprovalId] = useState<string | null>(null);
   const [editDrafts, setEditDrafts] = useState<Record<string, string>>({});
   const [ledger, setLedger] = useState<LedgerEvent[]>([]);
-  const [stats, setStats] = useState<DashboardStat[]>(() => getDashboardStats());
+  const [stats, setStats] = useState<DashboardStat[]>([]);
 
-  useEffect(() => {
-    void fetchDashboardStats().then(setStats).catch(() => undefined);
-
-    let source: EventSource | null = null;
-    let cancelled = false;
-
-    void createSquadEventSource().then((nextSource) => {
-      if (cancelled) {
-        nextSource.close();
-        return;
-      }
-      source = nextSource;
-      source.onmessage = (event) => {
-        const payload = parseSquadStreamEvent(event.data);
-        if (!payload || payload.type === "error") return;
-
-        if (payload.type === "agent_run_step") {
-          const next = ledgerEventFromStep(payload.row);
-          setLedger((current) => {
-            if (current.some((item) => item.id === next.id)) return current;
-            return [next, ...current].slice(0, 9);
-          });
-        }
-
-        if (payload.type === "squad_message") {
-          const message = mapSquadMessage(payload.row);
-          if (isHitlDecisionMessage(message) && message.hitlCard) {
-            setApprovals((current) =>
-              current.filter((approval) => approval.id !== message.hitlCard!.id),
-            );
-            void fetchDashboardStats().then(setStats).catch(() => undefined);
-            return;
-          }
-
-          const approval = approvalFromMessage(message);
-          if (approval) {
-            setApprovals((current) => {
-              if (current.some((item) => item.id === approval.id)) return current;
-              return [approval, ...current];
-            });
-          }
-        }
-      };
-    });
-
-    return () => {
-      cancelled = true;
-      source?.close();
-    };
-  }, []);
+  const workspace=useWorkspace();
+  useEffect(()=>{
+    setApprovals(Object.values(workspace.drafts).filter(draft=>draft.status==="AWAITING_HITL").map(draft=>({
+      id:draft.id,revision:draft.revision,eyebrow:agentLabels[draft.agent_slug]??draft.agent_slug,
+      title:draft.agent_slug==="vea"?"Review generated video asset":"Review agent draft",
+      body:draft.draft_content,impact:"Approval required before publishing",
+    })));
+    const latestSteps=new Map<string,AgentRunStepRow>();
+    for(const step of workspace.steps as unknown as AgentRunStepRow[])latestSteps.set(`${step.agent_run_id}:${step.step_label}`,step);
+    setLedger([...latestSteps.values()].slice(-9).reverse().map(ledgerEventFromStep));
+    void fetchDashboardStats().then(setStats).catch(error=>workspace.setError(error.message));
+  },[workspace.drafts,workspace.steps]);
 
   async function resolve(id: string, action: "approve" | "reject" | "edit", finalContent?: string) {
-    await resolveHitlDraft(id, action, finalContent);
+    try {
+      await resolveHitlDraft(id, action, finalContent, workspace.drafts[id]?.revision);
+    } catch(error) {
+      workspace.setError(error instanceof Error?error.message:"Decision failed");
+      return;
+    }
     setApprovals((arr) => arr.filter((a) => a.id !== id));
     setEditingApprovalId(null);
     setEditDrafts((current) => {
@@ -219,6 +171,7 @@ export default function DashboardPage() {
             </span>
           </Link>
 
+          {workspace.error&&<p role="status" className="mb-5 rounded-lg border border-border p-3 text-sm">{workspace.error}</p>}
           <section className="mb-10 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {stats.map((stat) => (
               <StatCard key={stat.label} value={stat.value} label={stat.label} />

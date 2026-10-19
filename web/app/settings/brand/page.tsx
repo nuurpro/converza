@@ -1,31 +1,45 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { memoryRequest, downloadIdentity, type IdentityCore } from "@/lib/api/memory";
 
 const BRAND_NAME_STORAGE_KEY = "converza.brandName";
 
 export default function BrandPage() {
-  const [brandName, setBrandName] = useState("Osman Skincare");
-  const [voice, setVoice] = useState("Direct, confident, warm. Speaks like a founder who built it themselves.");
-  const [audience, setAudience] = useState(
-    "DTC operators in the CIS selling premium skincare into the US and UAE.",
-  );
-  const [promise, setPromise] = useState("3 products in 1 bottle. No clutter on the bathroom shelf.");
-  const [markets, setMarkets] = useState(["US", "UAE"]);
+  const [brandName, setBrandName] = useState("");
+  const [voice, setVoice] = useState("");
+  const [audience, setAudience] = useState("");
+  const [promise, setPromise] = useState("");
+  const [markets, setMarkets] = useState<string[]>([]);
+  const [negative, setNegative] = useState("");
+  const [revision, setRevision] = useState(0);
+  const [busy, setBusy] = useState(true);
+  const [message, setMessage] = useState("");
   const [newMarket, setNewMarket] = useState("");
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(BRAND_NAME_STORAGE_KEY)?.trim();
-    if (stored) setBrandName(stored);
+    void memoryRequest<IdentityCore>("/identity").then(core=>{
+      const passport=core.passport;
+      setBrandName(String(passport.brand_name??""));
+      const voiceRules=passport.voice_rules??passport.tone??passport.brand_voice??"";
+      setVoice(Array.isArray(voiceRules)?voiceRules.join("\n"):String(voiceRules));
+      setAudience(String(passport.target_audience??""));
+      setPromise(String(passport.core_offer??""));
+      setMarkets(String(passport.target_location??"").split(",").map(value=>value.trim()).filter(Boolean));
+      const constraints=passport.negative_constraints??"";
+      setNegative(Array.isArray(constraints)?constraints.join("\n"):String(constraints));setRevision(core.revision);
+    }).catch(error=>setMessage(error.message)).finally(()=>setBusy(false));
   }, []);
 
-  useEffect(() => {
-    const normalized = brandName.trim();
-    if (normalized) {
-      window.localStorage.setItem(BRAND_NAME_STORAGE_KEY, normalized);
+  async function save(){
+    setBusy(true);setMessage("");
+    try{
+      const core=await memoryRequest<IdentityCore>("/identity",{method:"PUT",body:JSON.stringify({brand_name:brandName.trim(),voice_rules:voice,tone:voice,target_audience:audience,core_offer:promise,target_location:markets.join(", "),negative_constraints:negative,revision})});
+      setRevision(core.revision);setMessage("Saved. All agents use this identity on their next run.");
+      window.localStorage.setItem(BRAND_NAME_STORAGE_KEY, brandName.trim());
       window.dispatchEvent(new Event("converza:brand-name-updated"));
-    }
-  }, [brandName]);
+    }catch(error){setMessage(error instanceof Error?error.message:"Save failed");}finally{setBusy(false);}
+  }
 
   function addMarket() {
     const v = newMarket.trim();
@@ -44,6 +58,8 @@ export default function BrandPage() {
           The single source of truth the swarm reads before generating anything. Captured once, reused on every run.
         </p>
       </header>
+
+      {message&&<p role="status" className="rounded-lg border border-border p-3 text-sm">{message}</p>}
 
       <Field label="Brand name" hint="Shown in the sidebar and used as the workspace identity.">
         <input
@@ -106,12 +122,18 @@ export default function BrandPage() {
         </div>
       </Field>
 
+      <Field label="Negative constraints" hint="Claims, phrases, and behaviors the agents must avoid.">
+        <textarea aria-label="Negative constraints" value={negative} onChange={event=>setNegative(event.target.value)} rows={4} className="w-full rounded-lg border border-border bg-bg-elevated px-3.5 py-2.5 text-sm" />
+      </Field>
+
+      <div className="flex flex-wrap gap-4 text-xs">{["brand_passport.md","voice_rules.md","negative_constraints.md"].map(name=><button key={name} onClick={()=>void downloadIdentity(name).catch(error=>setMessage(error.message))} className="underline">Export {name}</button>)}</div>
+
       <div className="flex items-center justify-between border-t border-border pt-6">
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted">
-          Auto-saved · syncs to all swarm nodes
+          Identity revision {revision}
         </span>
-        <button className="rounded-full bg-text-primary px-5 py-2.5 text-[13.5px] font-medium text-bg-elevated transition-all hover:scale-[1.02] active:scale-[0.97]">
-          Save changes
+        <button onClick={()=>void save()} disabled={busy||!brandName.trim()} className="rounded-full bg-text-primary px-5 py-2.5 text-[13.5px] font-medium text-bg-elevated transition-all hover:scale-[1.02] active:scale-[0.97] disabled:opacity-50">
+          {busy?"Saving…":"Save changes"}
         </button>
       </div>
     </div>

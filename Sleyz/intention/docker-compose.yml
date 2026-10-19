@@ -1,0 +1,11 @@
+services:
+  converza:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    volumes:
+      # Hot-swap brand knowledge without rebuild
+      - ./brand_context.json:/app/brand_context.json:ro
+    restart: unless-stopped

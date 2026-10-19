@@ -8,6 +8,9 @@ import type {
 import { workspaceTokens } from "@/lib/data/workspace";
 import { authHeaders, getSupabaseAccessToken } from "@/lib/api/session";
 import { getCurrentOrgId, FALLBACK_ORG_ID } from "@/lib/org";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { presentationStatus, type DraftRow, type WorkspaceEvent } from "@/lib/data/workflow";
+import {subscribeWorkspaceTransport} from "@/lib/data/workspaceStream";
 
 export const DEFAULT_ORG_ID =
   process.env.NEXT_PUBLIC_DEFAULT_ORG_ID ??
@@ -51,10 +54,7 @@ interface SquadPostResponse {
   routed_to: AgentId[];
 }
 
-interface HitlResponse {
-  id: string;
-  status: DraftStatus;
-}
+type HitlResponse = DraftRow;
 
 const senderMeta: Record<
   string,
@@ -165,15 +165,19 @@ export async function resolveHitlDraft(
   draftId: string,
   action: "approve" | "reject" | "edit",
   finalContent?: string,
+  expectedRevision?: number,
 ) {
+  if (!expectedRevision) throw new Error("Draft revision is missing. Refresh live state before deciding.");
   return apiJson<HitlResponse>(`/api/hitl/${draftId}/${action}`, {
     method: "POST",
-    body: action === "edit" ? JSON.stringify({ final_content: finalContent ?? "" }) : undefined,
+    headers: {"Idempotency-Key":crypto.randomUUID()},
+    body: JSON.stringify({expected_revision:expectedRevision, ...(action === "edit" ? {final_content:finalContent??""} : {})}),
   });
 }
 
-export async function createSquadEventSource(orgId = getCurrentOrgId()) {
+export async function createSquadEventSource(orgId = getCurrentOrgId(), cursor?: number) {
   const params = new URLSearchParams({ org_id: orgId });
+  if (cursor !== undefined) params.set("cursor",String(cursor));
   const token = await getSupabaseAccessToken();
   if (token) params.set("access_token", token);
   return new EventSource(backendPath(`/api/squad/stream?${params.toString()}`));
@@ -187,9 +191,9 @@ export function parseSquadStreamEvent(raw: string): SquadStreamEvent | null {
   }
 }
 
-export function mapSquadMessage(row: SquadMessageRow): SquadMessageData {
+export function mapSquadMessage(row: SquadMessageRow, draft?: DraftRow): SquadMessageData {
   const meta = senderMeta[row.sender_slug] ?? senderMeta.converza;
-  const hitlStatus = inferHitlStatus(row.content);
+  const hitlStatus = draft ? presentationStatus(draft.status) : undefined;
 
   return {
     id: row.id,
@@ -199,12 +203,19 @@ export function mapSquadMessage(row: SquadMessageRow): SquadMessageData {
     mark: meta.mark,
     timestamp: formatTimestamp(row.created_at),
     text: row.content,
-    hitlCard: row.hitl_draft_id
+    hitlCard: row.hitl_draft_id && draft && hitlStatus && row.sender_slug === draft.agent_slug
       ? {
           id: row.hitl_draft_id,
           label: hitlStatus === "pending" ? "Review before use" : "Decision recorded",
-          content: row.content,
+          content: draft.final_content || draft.draft_content || "Generating draft…",
           status: hitlStatus,
+          revision: draft.revision,
+          deliveryStatus: draft.delivery_status,
+          deliveryError: draft.delivery_error,
+          generationError: draft.generation_error,
+          resolvedAt: draft.resolved_at,
+          canResolve: draft.agent_slug === "sleyz" && !!draft.prospect_id && draft.status === "PUBLISHED" && !draft.resolved_at,
+          canDeliver: !!draft.prospect_id && ["APPROVED","EDITED"].includes(draft.status) && !["sending","ambiguous"].includes(draft.delivery_status??"idle"),
         }
       : undefined,
   };
@@ -229,16 +240,27 @@ export function mapRunStepToActivity(row: AgentRunStepRow): ActivityFeedItem {
   };
 }
 
-export function inferHitlStatus(content: string): DraftStatus {
-  const normalized = content.toLowerCase();
-  if (normalized.includes("hitl approved")) return "approved";
-  if (normalized.includes("hitl rejected")) return "rejected";
-  if (normalized.includes("hitl edited")) return "edited";
-  return "pending";
+export async function resolveBuyerConversation(draft: DraftRow) {
+  return apiJson<DraftRow>(`/api/drafts/${draft.id}/resolve`,{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
 }
 
-export function isHitlDecisionMessage(message: SquadMessageData) {
-  return message.hitlCard?.status && message.hitlCard.status !== "pending";
+export async function retryDraftGeneration(draft: DraftRow) {
+  return apiJson(`/api/drafts/${draft.id}/retry-generation`,{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
+}
+
+export async function deliverBuyerReply(draft: DraftRow) {
+  return apiJson<DraftRow>(`/api/drafts/${draft.id}/deliver`,{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
+}
+
+export function subscribeWorkspace(onEvent: (event:WorkspaceEvent)=>void, onError:(message:string|null)=>void) {
+  return subscribeWorkspaceTransport(onEvent,onError,{
+    getOrgId:owner=>getCurrentOrgId(owner),
+    createSource:createSquadEventSource,
+    subscribeAuth:callback=>{
+      const listener=getSupabaseBrowserClient()?.auth.onAuthStateChange((event,session)=>callback(event,session?.user.id));
+      return ()=>listener?.data.subscription.unsubscribe();
+    },
+  });
 }
 
 function formatTimestamp(value?: string) {

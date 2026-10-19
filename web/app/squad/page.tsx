@@ -1,148 +1,35 @@
 "use client";
+import {useState} from "react";
+import {ChatInputBar,SquadMessage,WorkspaceHeader} from "@/components/workspace/AgentWorkspace";
+import type {DraftStatus} from "@/lib/data/workspace";
+import {mapSquadMessage,resolveHitlDraft,sendSquadMessage,resolveBuyerConversation,retryDraftGeneration,deliverBuyerReply,type SquadMessageRow} from "@/lib/api/workspace";
+import {useWorkspace} from "@/lib/hooks/useWorkspace";
 
-import { useEffect, useState } from "react";
-import {
-  ChatInputBar,
-  SquadMessage,
-  WorkspaceHeader,
-} from "@/components/workspace/AgentWorkspace";
-import {
-  type DraftStatus,
-  type SquadMessageData,
-} from "@/lib/data/workspace";
-import {
-  createSquadEventSource,
-  isHitlDecisionMessage,
-  mapSquadMessage,
-  parseSquadStreamEvent,
-  resolveHitlDraft,
-  sendSquadMessage,
-} from "@/lib/api/workspace";
-
-function upsertMessage(messages: SquadMessageData[], next: SquadMessageData) {
-  if (messages.some((message) => message.id === next.id)) return messages;
-  return [...messages, next];
-}
-
-function actionForStatus(status: DraftStatus) {
-  if (status === "approved") return "approve";
-  if (status === "rejected") return "reject";
-  return "edit";
-}
-
-export default function SquadChatPage() {
-  const [messages, setMessages] = useState<SquadMessageData[]>([]);
-  const [hitlStatuses, setHitlStatuses] = useState<Record<string, DraftStatus>>({});
-  const [isSending, setIsSending] = useState(false);
-  const [streamError, setStreamError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let source: EventSource | null = null;
-    let cancelled = false;
-
-    void createSquadEventSource().then((nextSource) => {
-      if (cancelled) {
-        nextSource.close();
-        return;
-      }
-      source = nextSource;
-      source.onmessage = (event) => {
-        const payload = parseSquadStreamEvent(event.data);
-        if (!payload) return;
-
-        if (payload.type === "error") {
-          setStreamError(payload.error);
-          return;
-        }
-
-        if (payload.type !== "squad_message") return;
-
-        const message = mapSquadMessage(payload.row);
-        setMessages((current) => upsertMessage(current, message));
-
-        if (isHitlDecisionMessage(message) && message.hitlCard) {
-          setHitlStatuses((current) => ({
-            ...current,
-            [message.hitlCard!.id]: message.hitlCard!.status,
-          }));
-        }
-      };
-
-      source.onerror = () => {
-        setStreamError("Live squad stream disconnected. Retrying...");
-      };
-    });
-
-    return () => {
-      cancelled = true;
-      source?.close();
-    };
-  }, []);
-
-  async function handleHitlAction(cardId: string, status: DraftStatus, finalContent?: string) {
-    setHitlStatuses((current) => ({ ...current, [cardId]: status }));
-
-    try {
-      const updated = await resolveHitlDraft(cardId, actionForStatus(status), finalContent);
-      setHitlStatuses((current) => ({ ...current, [cardId]: updated.status }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Approval request failed";
-      setStreamError(message);
-      setHitlStatuses((current) => ({ ...current, [cardId]: "pending" }));
-    }
+export default function SquadChatPage(){
+  const {messages,drafts,error,setError}=useWorkspace();
+  const [sending,setSending]=useState(false);
+  const [busy,setBusy]=useState<string|null>(null);
+  const [localMessages,setLocalMessages]=useState<SquadMessageRow[]>([]);
+  const rows=messages as unknown as SquadMessageRow[];
+  const merged=[...rows,...localMessages.filter(row=>!rows.some(existing=>existing.id===row.id))];
+  const linked=new Set(merged.map(row=>row.hitl_draft_id));
+  const all=[...merged,...Object.values(drafts).filter(draft=>!linked.has(draft.id)).map(draft=>({id:`draft:${draft.id}`,org_id:draft.org_id,sender_slug:draft.agent_slug,content:"Customer-facing draft",hitl_draft_id:draft.id,created_at:draft.created_at}))];
+  async function decide(id:string,status:DraftStatus,content?:string){
+    const draft=drafts[id];if(!draft||busy)return;setBusy(id);setError(null);
+    try{await resolveHitlDraft(id,status==="approved"?"approve":status==="rejected"?"reject":"edit",content,draft.revision);}
+    catch(failure){setError(failure instanceof Error?failure.message:"Decision failed");}
+    finally{setBusy(null);}
   }
-
-  async function sendMessage(text: string) {
-    setIsSending(true);
-    setStreamError(null);
-
-    try {
-      const result = await sendSquadMessage(text);
-      setMessages((current) => upsertMessage(current, mapSquadMessage(result.message)));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Squad message failed";
-      setStreamError(message);
-    } finally {
-      setIsSending(false);
-    }
+  async function act(id:string,action:"resolve"|"retry"|"deliver"){
+    const draft=drafts[id];if(!draft||busy)return;setBusy(id);setError(null);
+    try{if(action==="resolve")await resolveBuyerConversation(draft);else if(action==="deliver")await deliverBuyerReply(draft);else await retryDraftGeneration(draft);}
+    catch(failure){setError(failure instanceof Error?failure.message:"Action failed");}
+    finally{setBusy(null);}
   }
-
-  return (
-    <div className="flex h-full flex-col bg-white">
-      <WorkspaceHeader title="Squad chat" subtitle="everyone, in one room" />
-      <main className="flex min-h-0 flex-1 flex-col px-5 py-5 md:px-10">
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          <div className="mx-auto flex max-w-4xl flex-col gap-4">
-            {streamError && (
-              <div className="rounded-xl border border-[#e5e5e5] bg-[#fafafa] px-4 py-3 font-workspace-sans text-[12px] text-[#666666]">
-                {streamError}
-              </div>
-            )}
-            {messages.map((message) => (
-              <SquadMessage
-                key={message.id}
-                message={message}
-                hitlStatus={
-                  message.hitlCard
-                    ? hitlStatuses[message.hitlCard.id] ?? message.hitlCard.status
-                    : undefined
-                }
-                onHitlAction={
-                  message.hitlCard
-                    ? (status, finalContent) => handleHitlAction(message.hitlCard!.id, status, finalContent)
-                    : undefined
-                }
-              />
-            ))}
-          </div>
-        </div>
-      </main>
-      <ChatInputBar
-        placeholder="Message the squad..."
-        showTaskToggle
-        isSending={isSending}
-        onSend={sendMessage}
-      />
-    </div>
-  );
+  async function send(text:string){setSending(true);setError(null);try{const result=await sendSquadMessage(text);setLocalMessages(current=>[...current,result.message]);}catch(failure){setError(failure instanceof Error?failure.message:"Message failed");}finally{setSending(false);}}
+  return <div className="flex h-full flex-col bg-white"><WorkspaceHeader title="Squad chat" subtitle="everyone, in one room"/>
+    <main className="min-h-0 flex-1 overflow-y-auto px-5 py-5 md:px-10"><div className="mx-auto flex max-w-4xl flex-col gap-4">
+      {error&&<p role="status" className="rounded-xl border border-border p-3 text-sm">{error}</p>}
+      {all.map(row=>{const message=mapSquadMessage(row,row.hitl_draft_id?drafts[row.hitl_draft_id]:undefined);return <SquadMessage key={row.id} message={message} busy={busy===row.hitl_draft_id} onHitlAction={message.hitlCard?(status,content)=>void decide(message.hitlCard!.id,status,content):undefined} onResolve={message.hitlCard?()=>void act(message.hitlCard!.id,"resolve"):undefined} onRetry={message.hitlCard?()=>void act(message.hitlCard!.id,"retry"):undefined} onDeliver={message.hitlCard?()=>void act(message.hitlCard!.id,"deliver"):undefined}/>;})}
+    </div></main><ChatInputBar placeholder="Message the squad..." showTaskToggle isSending={sending} onSend={send}/></div>;
 }

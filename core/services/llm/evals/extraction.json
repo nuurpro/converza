@@ -1,0 +1,32 @@
+[
+  {
+    "id": "resolved_exact_quotes",
+    "instruction": "Extract one objection only because resolved=true. Return an object with objections, an array containing objects with exact_objection, exact_final_answer, and source_ref. Preserve the exact buyer and agent wording. Never add a timestamp.",
+    "source": {"resolved": true, "source_ref": "conversation:42:r3", "buyer": "It's too expensive — can you do $9?", "final_answer": "The current price is $19. We can include setup at no extra charge."},
+    "expected": {"objections": [{"exact_objection": "It's too expensive — can you do $9?", "exact_final_answer": "The current price is $19. We can include setup at no extra charge.", "source_ref": "conversation:42:r3"}]}
+  },
+  {
+    "id": "unresolved_is_not_memory",
+    "instruction": "Extract objections only from explicitly resolved conversations. Return {objections: []} when resolved=false. Approval or delivery is insufficient to infer resolution.",
+    "source": {"resolved": false, "draft_status": "published", "buyer": "Will this fit my workflow?", "final_answer": "Let's discuss your setup."},
+    "expected": {"objections": []}
+  },
+  {
+    "id": "authoritative_price_wins",
+    "instruction": "Return {price: number, currency: string} for the current catalog product. The authoritative catalog overrides historical summaries, regardless of indexing time. Use the exact current price and currency.",
+    "source": {"catalog": {"sku": "starter", "price": 29, "currency": "USD"}, "historical_summary": "The starter plan is $19 per month."},
+    "expected": {"price": 29, "currency": "USD"}
+  },
+  {
+    "id": "identity_edit_no_synthetic_objection",
+    "instruction": "Extract factual knowledge and objections. Return {facts: string[], objections: []}. The identity edit is a human instruction, not a buyer conversation; never invent an objection or answer. Put the exact human instruction into facts.",
+    "source": {"kind": "identity_edit", "instruction": "Never promise delivery within 24 hours."},
+    "expected": {"facts": ["Never promise delivery within 24 hours."], "objections": []}
+  },
+  {
+    "id": "unicode_quote_fidelity",
+    "instruction": "Extract the exact objection and exact final answer from this explicitly resolved conversation. Return {exact_objection: string, exact_final_answer: string}. Preserve punctuation and all Unicode characters.",
+    "source": {"resolved": true, "buyer": "Нарх қиммат — арзонроқ бўладими?", "final_answer": "Ҳозирги нарх: 250 000 сўм. Бўлиб тўлаш мумкин."},
+    "expected": {"exact_objection": "Нарх қиммат — арзонроқ бўладими?", "exact_final_answer": "Ҳозирги нарх: 250 000 сўм. Бўлиб тўлаш мумкин."}
+  }
+]

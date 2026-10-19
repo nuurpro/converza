@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sales-bot
+  namespace: converza-sales
+  labels:
+    com.docker.compose.project: converza_sales
+    com.docker.compose.service: sales-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      com.docker.compose.project: converza_sales
+      com.docker.compose.service: sales-bot
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        com.docker.compose.project: converza_sales
+        com.docker.compose.service: sales-bot
+        com.docker.compose.network.default: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: sales-bot
+          image: converza_sales-sales-bot
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: HUAWEI_MAAS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: converza-sales-runtime
+                  key: HUAWEI_MAAS_API_KEY
+            - name: HUAWEI_MAAS_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: converza-sales-runtime
+                  key: HUAWEI_MAAS_MODEL
+            - name: HUAWEI_MAAS_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: converza-sales-runtime
+                  key: HUAWEI_MAAS_BASE_URL
+            - name: SALES_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: converza-sales-runtime
+                  key: SALES_BOT_TOKEN
+            - name: MANAGER_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: converza-sales-runtime
+                  key: MANAGER_BOT_TOKEN
+            - name: SALES_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: converza-sales-runtime
+                  key: SALES_WEBHOOK_SECRET
+            - name: SUPABASE_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: converza-sales-runtime
+                  key: SUPABASE_SERVICE_KEY
+            - name: SUPABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: converza-sales-runtime
+                  key: SUPABASE_URL
+          ports:
+            - name: sales-bot-8000
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: sales-bot-8000
+            initialDelaySeconds: 5
+            periodSeconds: 10

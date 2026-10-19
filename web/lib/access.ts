@@ -1,6 +1,9 @@
 export type DashboardGateDestination = "allow" | "/landing" | "/onboarding" | "/onboarding/reveal";
 
 interface GatePassport {
+  id?: string;
+  org_id?: string;
+  owner_user_id?: string;
   onboarding_completed_at?: string | null;
   paywall_status?: "pending" | "stub_completed" | "paid";
 }
