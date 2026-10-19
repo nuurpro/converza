@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "exact_quote_fidelity",
+      "source": {
+        "id": "s1",
+        "revision": 1,
+        "kind": "objection",
+        "content": "That costs too much.\nTraining is included.",
+        "metadata": {
+          "status": "PUBLISHED",
+          "delivered_at": "2026-01-01T12:00:00Z",
+          "resolved_at": "2026-01-02T12:00:00Z",
+          "inbound_text": "That costs too much.",
+          "final_content": "Training is included.",
+          "agent_slug": "sleyz",
+          "prospect_id": "buyer-1"
+        }
+      },
+      "output": {
+        "summary": "Cost concern addressed by included training.",
+        "atoms": [
+          {
+            "kind": "objection",
+            "objection": "That costs too much.",
+            "answer": "Training is included."
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "id": "paraphrase_is_not_exact",
+      "source": {
+        "id": "s2",
+        "revision": 1,
+        "kind": "faq",
+        "content": "Returns accepted for 30 days.",
+        "metadata": {}
+      },
+      "output": {
+        "summary": "Return policy",
+        "atoms": [
+          {
+            "kind": "fact",
+            "text": "You can return within one month."
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "approval_is_not_resolution",
+      "source": {
+        "id": "s3",
+        "revision": 1,
+        "kind": "objection",
+        "content": "Expensive\nWorth it",
+        "metadata": {
+          "status": "APPROVED",
+          "inbound_text": "Expensive",
+          "final_content": "Worth it"
+        }
+      },
+      "output": {
+        "summary": "Resolved price objection",
+        "atoms": []
+      },
+      "valid": false
+    },
+    {
+      "id": "manual_identity_is_not_buyer",
+      "source": {
+        "id": "s4",
+        "revision": 1,
+        "kind": "manual",
+        "content": "We speak warmly.",
+        "metadata": {}
+      },
+      "output": {
+        "summary": "Voice",
+        "atoms": [
+          {
+            "kind": "objection",
+            "objection": "We speak warmly.",
+            "answer": "We speak warmly."
+          }
+        ]
+      },
+      "valid": false
+    }
+  ],
+  "retrieval": {
+    "retired_price": 100,
+    "current_price": 120,
+    "currency": "USD",
+    "expect_no_retired_price": true,
+    "max_results": 8,
+    "recency_half_life_days": 30,
+    "recency_floor": 0.25
+  }
+}

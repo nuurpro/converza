@@ -316,10 +316,18 @@ export function SquadMessage({
   message,
   hitlStatus,
   onHitlAction,
+  onResolve,
+  onDeliver,
+  onRetry,
+  busy,
 }: {
   message: SquadMessageData;
   hitlStatus?: DraftStatus;
   onHitlAction?: (status: DraftStatus, finalContent?: string) => void;
+  onResolve?: () => void;
+  onDeliver?: () => void;
+  onRetry?: () => void;
+  busy?: boolean;
 }) {
   return (
     <article className="flex items-start gap-2.5 font-workspace-sans">
@@ -348,6 +356,10 @@ export function SquadMessage({
             onApprove={() => onHitlAction?.("approved")}
             onEdit={(finalContent) => onHitlAction?.("edited", finalContent)}
             onSkip={() => onHitlAction?.("rejected")}
+            onResolve={onResolve}
+            onDeliver={onDeliver}
+            onRetry={onRetry}
+            busy={busy}
           />
         )}
       </div>
@@ -360,11 +372,19 @@ export function HitlCard({
   onApprove,
   onEdit,
   onSkip,
+  onResolve,
+  onDeliver,
+  onRetry,
+  busy,
 }: {
   card: HitlCardData;
   onApprove: () => void;
   onEdit: (finalContent: string) => void;
   onSkip: () => void;
+  onResolve?: () => void;
+  onDeliver?: () => void;
+  onRetry?: () => void;
+  busy?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(card.content);
@@ -375,12 +395,16 @@ export function HitlCard({
     edited: "bg-milo-dim text-milo",
     rejected: "bg-[#f4f4f5] text-[#666666]",
     pending: "",
+    published: "bg-sleyz-dim text-sleyz",
+    generating: "bg-[#f4f4f5] text-[#666666]",
   }[card.status];
   const statusLabel = {
-    approved: "Approved - ready to use",
-    edited: "Edited - ready to use",
+    approved: "Approved · awaiting publisher",
+    edited: "Edited · awaiting publisher",
     rejected: "Skipped",
     pending: "",
+    published: card.resolvedAt ? "Delivered · conversation resolved" : "Published · delivery confirmed",
+    generating: card.generationError ? "Generation failed" : "Generating draft",
   }[card.status];
 
   return (
@@ -391,6 +415,9 @@ export function HitlCard({
       <p className="mt-2 whitespace-pre-wrap text-[13px] leading-[1.5] text-[#111111]">
         {card.content}
       </p>
+      {card.generationError&&<p role="alert" className="mt-2 text-xs text-error">{card.generationError}</p>}
+      {card.deliveryError&&<p role="alert" className="mt-2 text-xs text-error">Delivery {card.deliveryStatus}: {card.deliveryError}</p>}
+      {card.deliveryStatus==="sending"&&<p className="mt-2 text-xs text-text-muted">Delivery in progress</p>}
       {!resolved && isEditing && (
         <div className="mt-3">
           <label className="mb-1.5 block font-workspace-mono text-[9px] uppercase tracking-[0.08em] text-[#999999]">
@@ -406,6 +433,9 @@ export function HitlCard({
         </div>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
+        {card.canDeliver&&<button disabled={busy} onClick={onDeliver} className="rounded-full border border-border px-3 py-1.5 text-xs disabled:opacity-50">{card.deliveryStatus==="failed"?"Retry delivery":"Send buyer reply"}</button>}
+        {card.canResolve&&<button disabled={busy} onClick={onResolve} className="rounded-full border border-border px-3 py-1.5 text-xs disabled:opacity-50">Mark conversation resolved</button>}
+        {card.generationError&&onRetry&&<button disabled={busy} onClick={onRetry} className="rounded-full border border-border px-3 py-1.5 text-xs disabled:opacity-50">Retry generation</button>}
         {resolved ? (
           <span className={clsx("rounded-full px-2.5 py-1 font-workspace-mono text-[10px]", statusClass)}>
             {statusLabel}
@@ -415,6 +445,7 @@ export function HitlCard({
             <button
               type="button"
               onClick={onApprove}
+              disabled={busy}
               className="rounded-full border border-converza-blue bg-converza-blue px-3.5 py-1.5 text-[11px] font-medium text-white"
             >
               Approve
@@ -428,7 +459,7 @@ export function HitlCard({
                 }
                 if (canSubmitEdit) onEdit(editText.trim());
               }}
-              disabled={isEditing && !canSubmitEdit}
+              disabled={busy || (isEditing && !canSubmitEdit)}
               className="rounded-full border border-[#e5e5e5] px-3.5 py-1.5 text-[11px] text-[#111111] hover:bg-[#f4f4f5] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isEditing ? "Submit edit" : "Request edit"}
@@ -448,6 +479,7 @@ export function HitlCard({
             <button
               type="button"
               onClick={onSkip}
+              disabled={busy}
               className="rounded-full border border-[#e5e5e5] px-3.5 py-1.5 text-[11px] text-[#111111] hover:bg-[#f4f4f5]"
             >
               Skip

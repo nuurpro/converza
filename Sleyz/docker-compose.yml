@@ -1,0 +1,12 @@
+services:
+  sales-bot:
+    build:
+      context: ..
+      dockerfile: Sleyz/Dockerfile
+    ports:
+      - "8001:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - ../core/.env
+    restart: unless-stopped

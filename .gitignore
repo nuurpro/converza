@@ -1,53 +1,29 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-.Python
-*.egg-info/
-dist/
-build/
-*.egg
-
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-
-# Environment variables — NEVER commit
+# Local configuration and credentials
 .env
-.env.local
-.env*.local
+.env.*
+*.env
+!.env.example
+!*.env.example
+*.pem
+*.key
 
-# Editor artifacts
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS artifacts
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# pytest
-.pytest_cache/
-htmlcov/
-.coverage
-
-# Node / Next.js
+# Dependencies and generated outputs
 node_modules/
 .next/
-out/
+.next-qa/
 next-env.d.ts
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
 .gstack/
-
-# OpenClaw engine (cloned at repo root, not tracked)
-/backend/
-
-# MoneyPrinterTurbo worker clone (run separately, not vendored)
-services/MoneyPrinterTurbo/
+_archive/
+.DS_Store
+Thumbs.db

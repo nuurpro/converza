@@ -53,7 +53,7 @@ test("workspace navigation follows the approved v1 information architecture", ()
 
   assert.deepEqual(
     items.map((item) => item.label),
-    ["Dashboard", "Agents", "Squad chat", "Competitors", "Virtual office", "Settings"],
+    ["Dashboard", "Agents", "Squad chat", "Competitors", "Connect channels", "Virtual office", "Settings"],
   );
   assert.equal(items.find((item) => item.id === "office")?.badge, "Soon");
   assert.equal(items.find((item) => item.id === "settings")?.placement, "footer");

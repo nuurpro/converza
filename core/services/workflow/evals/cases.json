@@ -1,0 +1,10 @@
+[
+  {"agent":"vea","request":"Render a fifteen-second product video for our launch campaign.","kind":"customer_copy"},
+  {"agent":"vea","request":"Analyze scene pacing for the owner. Do not render any video.","kind":"internal_recommendation"},
+  {"agent":"milo","request":"Draft three customer-facing Instagram hooks for our serum.","kind":"customer_copy"},
+  {"agent":"sleyz","request":"Buyer says it costs too much. Draft the reply I should send.","kind":"customer_copy"},
+  {"agent":"milo","request":"Write an email subject line and recommend the campaign schedule.","kind":"customer_copy"},
+  {"agent":"sleyz","request":"Recommend internal lead qualification process improvements. Do not write a buyer reply.","kind":"internal_recommendation"},
+  {"agent":"milo","request":"Analyze our content plan for the owner. Do not generate marketing copy.","kind":"internal_recommendation"},
+  {"agent":"sleyz","request":"How should our team think about the objection funnel? Give owner-only analysis.","kind":"internal_recommendation"}
+]

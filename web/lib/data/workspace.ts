@@ -43,13 +43,20 @@ export interface AgentChatConfig {
 }
 
 export type MessageRole = "user" | "assistant" | "human_edit";
-export type DraftStatus = "pending" | "approved" | "edited" | "rejected";
+export type DraftStatus = "pending" | "approved" | "edited" | "rejected" | "published" | "generating";
 
 export interface HitlCardData {
   id: string;
   label: string;
   content: string;
   status: DraftStatus;
+  revision?: number;
+  deliveryStatus?: string;
+  deliveryError?: string | null;
+  generationError?: string | null;
+  resolvedAt?: string | null;
+  canResolve?: boolean;
+  canDeliver?: boolean;
 }
 
 export interface SquadMessageData {

@@ -25,6 +25,9 @@ async function proxy(request: NextRequest, context: RouteContext) {
   }
 
   const { path } = await context.params;
+  if (path[0] === "api" && path[1] === "internal") {
+    return Response.json({ detail: "Service-only endpoint" }, { status: 403 });
+  }
   const upstreamUrl = backendUrl(path, request);
   const headers = new Headers(request.headers);
   const userAuthorization = headers.get("authorization");
@@ -40,6 +43,7 @@ async function proxy(request: NextRequest, context: RouteContext) {
     headers,
     body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
     cache: "no-store",
+    signal: request.signal,
   });
 
   return new Response(upstream.body, {
@@ -56,3 +60,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   return proxy(request, context);
 }
+
+export async function PUT(request: NextRequest, context: RouteContext) { return proxy(request, context); }
+export async function PATCH(request: NextRequest, context: RouteContext) { return proxy(request, context); }
+export async function DELETE(request: NextRequest, context: RouteContext) { return proxy(request, context); }

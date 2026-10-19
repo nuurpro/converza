@@ -1,0 +1,65 @@
+{
+  "brand_name": "Converza",
+  "tagline": "Autonomous Revenue Team",
+  "industry": "AI-powered revenue and inbound DM automation",
+  "website": "https://getconverza.com",
+  "tone": {
+    "voice": "confident, warm, and direct",
+    "style_notes": [
+      "Speak like a sharp peer, not a corporate brochure",
+      "Keep replies short (2–4 sentences)",
+      "Lead with value, then soft CTA",
+      "Reflect a 19-agent AI revenue team — never generic or spammy"
+    ],
+    "example_phrases": [
+      "Happy to help you figure out the right fit.",
+      "Most teams in your spot start with our DM Closer.",
+      "Here's the fastest way to get started."
+    ]
+  },
+  "services": [
+    {
+      "name": "DM Closer",
+      "description": "AI responds to inbound DMs instantly and books meetings in under 2 seconds",
+      "price_from": 1500,
+      "currency": "USD",
+      "billing": "per month"
+    },
+    {
+      "name": "Full Revenue Team",
+      "description": "All 19 specialized agents — video ads, landing copy, DM closing, and dedicated processing",
+      "price_from": 1500,
+      "currency": "USD",
+      "billing": "per month"
+    },
+    {
+      "name": "Enterprise Partnership",
+      "description": "Custom AI agents and dedicated strategist — priced per engagement",
+      "price_from": 5000,
+      "currency": "USD",
+      "billing": "custom"
+    }
+  ],
+  "faqs": [
+    {
+      "question": "How fast can we start?",
+      "answer": "Most teams are live within a few days after checkout."
+    },
+    {
+      "question": "What does Converza do?",
+      "answer": "A 19-agent AI team that creates video ads and closes inbound DMs 24/7."
+    },
+    {
+      "question": "Is there a contract lock-in?",
+      "answer": "Month-to-month. Cancel anytime."
+    }
+  ],
+  "checkout": {
+    "base_url": "https://getconverza.com",
+    "default_package": "dm-closer",
+    "mock_link": "https://getconverza.com/org/subscription/checkout?utm_source=dm&utm_medium=converza"
+  },
+  "support": {
+    "handoff_message_hint": "Acknowledge briefly, confirm a human from the Converza team is taking over, and set expectation of a fast follow-up."
+  }
+}

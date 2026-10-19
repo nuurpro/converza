@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "node --experimental-strip-types --test lib/data/*.test.mjs tests/*.test.ts",
+    "typecheck": "tsc --noEmit --incremental false",
     "lint": "next lint"
   },
   "dependencies": {
