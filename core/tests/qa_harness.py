@@ -78,6 +78,7 @@ def bootstrap(dsn):
             q.execute("SELECT to_regclass('sleyz_inbound')")
             if not q.fetchone()[0]:
                 q.execute((CORE/'migrations/007_sleyz_inbound.sql').read_text())
+            q.execute((CORE/'migrations/008_milo_campaigns.sql').read_text())
             q.execute('''ALTER TABLE brand_passports ADD COLUMN IF NOT EXISTS tone text,
               ADD COLUMN IF NOT EXISTS industry text,ADD COLUMN IF NOT EXISTS core_offer text,
               ADD COLUMN IF NOT EXISTS target_audience text,ADD COLUMN IF NOT EXISTS target_location text,
@@ -115,6 +116,14 @@ def create_app():
         return f'Nova Training founder course price is {price} and includes two coaching sessions. Which goal should we focus on?'
     async def render(*args,**kwargs): return {'video_url':'https://example.invalid/qa-preview.mp4'}
     board.complete_json=classify; board.call_engine=engine; board.call_moneyprinterturbo=render
+    # QA-only semantic review: real route validation/storage still run unchanged.
+    import services.milo.routes as milo_routes
+    async def qa_review(artifact,context,**kwargs):
+        from services.milo.pipeline import validate_brand_compliance
+        report=validate_brand_compliance(artifact,context)
+        report['semantic_checked']=True
+        return report
+    milo_routes.review_compliance=qa_review
     app=main.app
     from fastapi import Header, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
@@ -158,6 +167,51 @@ def create_app():
             return context
         processed=await SleyzWorker(SupabaseRepository(client),model=qa_sleyz_model,context_loader=context_loader).run_once()
         return {'processed':processed}
+    @app.post('/qa/milo-seed')
+    async def qa_milo_seed():
+        from datetime import datetime,timezone
+        from services.milo.evidence import save_brand
+        from services.milo.store import MiloStore
+        from services.sleyz.store import SleyzStore
+        from lib.repository import SupabaseRepository
+        repo=SupabaseRepository(client)
+        source=client.table('memory_sources').select('*').eq('org_id',ORG).eq('kind','faq').eq('external_id',FAQ).single().execute().data
+        await save_brand(repo,ORG,{'campaign_language':'en','personas':[],
+            'proof_points':[{'id':'coaching','source_id':source['id'],'revision':source['revision'],
+                             'quote':'Two coaching sessions are included.','objection_topics':['price']}],
+            'banned_terms':['guaranteed revenue'],'competitor_names':[]},OWNER)
+        accepted=await SleyzStore(repo).accept(dict(org_id=ORG,platform='telegram',connection_id='qa-real-fixture',external_message_id='milo-buyer',
+            customer_id='qa-milo-buyer',text='This sounds expensive. What support is included?',received_at=datetime.now(timezone.utc).isoformat()))
+        store=MiloStore(repo)
+        for job in await store.claim('extract',limit=100):
+            if job['payload']['inbound_id']==accepted['inbound_id']:
+                await store.finish_extraction(job,[dict(objection_type='price',topic='price',product_id=None,buyer_text='This sounds expensive.',span_start=0,span_end=22)])
+            else: await store.finish_extraction(job,[])
+        return {'org_id':ORG,'ready':True}
+    @app.post('/qa/milo-process')
+    async def qa_milo_process():
+        from services.milo.worker import MiloWorker
+        from lib.repository import SupabaseRepository
+        async def model(messages,**kwargs):
+            if 'passed' in kwargs['schema'].get('properties',{}): return {'passed':True,'violations':[]}
+            request=json.loads(messages[-1]['content'])
+            quote=request['buyer_objections'][0]; proof=request['verified_proof_points'][0]
+            return dict(schema_version=1,trigger_reason=request['trigger_reason'],target_persona=request['personas'][0],language=request['language'],
+                hooks=[{'framework':'A','text':'This sounds expensive. What support is included?'},
+                       {'framework':'B','text':'Two coaching sessions are included.'},
+                       {'framework':'C','text':'DM us to ask about the founder course.'}],
+                video_script=[{'spoken_narration':'Two coaching sessions are included. DM us for details.',
+                               'visual_broll_cues':'Show the coaching session setup.','on_screen_text':'Coaching included'}],
+                social_captions={'instagram':'Ask about coaching for your founder journey.','telegram':'Two coaching sessions are included. DM us for details.','tiktok':'What support do you need as a founder?'},
+                buyer_quotes=[{'source_id':quote['id'],'text':quote['buyer_text']}],proof_references=[{k:proof[k] for k in ('source_id','revision','quote')}],brand_revision=request['brand_revision'])
+        worker=MiloWorker(SupabaseRepository(client),model=model)
+        return {'processed':await worker.run_once('generate')}
+    @app.post('/qa/milo-build')
+    async def qa_milo_build():
+        from services.milo.worker import MiloWorker
+        from lib.repository import SupabaseRepository
+        async def renderer(job,store): return {'video_url':'https://example.invalid/qa-milo.mp4','task_id':'qa-video-task','video_script':job['payload']['video_script']}
+        return {'processed':await MiloWorker(SupabaseRepository(client),renderer=renderer).run_once('build')}
     return app
 
 

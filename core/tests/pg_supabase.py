@@ -9,7 +9,8 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extras import Json, RealDictCursor
 
-JSON_COLUMNS={'metadata','onboarding_answers','voice_rules','negative_constraints','atoms','delivery_receipt','receipt','payload','source_snapshot','result'}
+JSON_COLUMNS={'metadata','onboarding_answers','voice_rules','negative_constraints','atoms','delivery_receipt','receipt','payload','source_snapshot','result',
+              'personas','proof_points','banned_terms','competitor_names'}
 
 
 def json_default(value):

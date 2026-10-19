@@ -89,6 +89,14 @@ async def run_agent(
                 raise ValueError(f"Unknown agent_slug: {agent_slug}")
 
         if draft is None and await classify_output(agent_slug, text) == 'customer_copy':
+            if agent_slug == 'milo':
+                from services.milo.store import MiloStore
+                campaign = await MiloStore(repo).enqueue(org_id, 'manual', prompt=text, key=f'switchboard:{run_id}')
+                response = f"Campaign {campaign['id']} queued. Review its buyer evidence, copy, and video script in the Milo workspace. Script approval starts Vea."
+                await repo.insert_agent_memory(org_id, 'milo', 'assistant', response)
+                await repo.insert_squad_message(org_id, 'milo', response, related_run_id=run_id)
+                await repo.update_agent_run(run_id, {'status':'completed','completed_at':datetime.now(timezone.utc).isoformat()})
+                return {'run_id':run_id,'agent_slug':'milo','response':response,'campaign_id':campaign['id']}
             draft = await repo.create_draft(org_id, agent_slug, text, '')
 
         if draft is not None:

@@ -105,16 +105,14 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
                 await publish_telegram(**args)
             self.assertEqual(len(calls), 1)
 
-    async def test_customer_draft_exists_before_model_generation(self):
+    async def test_customer_campaign_is_durable_before_model_generation(self):
         from lib.switchboard import run_agent
-        async def generate(*args, **kwargs):
-            drafts = [d for d in self.repo.drafts if d['agent_slug']=='milo']
-            self.assertEqual(drafts[0]['status'], 'PENDING_DRAFT')
-            self.assertEqual(kwargs['operation'], 'creative')
-            return 'A new hook'
-        with patch('lib.switchboard.classify_output', AsyncMock(return_value='customer_copy')), patch('lib.switchboard.call_engine', generate):
-            await run_agent(org_id='a', agent_slug='milo', text='Draft hook', triggered_by='owner', repo=self.repo)
-        self.assertEqual(self.repo.drafts[-1]['status'], 'AWAITING_HITL')
+        with patch('lib.switchboard.classify_output', AsyncMock(return_value='customer_copy')), patch('lib.switchboard.call_engine',AsyncMock()) as generate:
+            result=await run_agent(org_id='a', agent_slug='milo', text='Draft hook', triggered_by='owner', repo=self.repo)
+        generate.assert_not_awaited()
+        from services.milo.store import MiloStore
+        row=await MiloStore(self.repo).get_campaign('a',result['campaign_id'])
+        self.assertEqual(row['status'],'queued')
 
     async def test_internal_recommendation_has_no_draft(self):
         from lib.switchboard import run_agent

@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { memoryRequest, downloadIdentity, type IdentityCore } from "@/lib/api/memory";
+
+import { useMiloOrg } from "@/lib/hooks/useMiloOrg";
+import { MiloBrandConfig } from "@/components/workspace/MiloBrandConfig";
 
 const BRAND_NAME_STORAGE_KEY = "converza.brandName";
 
 export default function BrandPage() {
+  const org = useMiloOrg();
+  return org ? <BrandEditor key={org} org={org} /> : <p className="text-sm text-text-muted">Sign in to edit Brand Passport.</p>;
+}
+
+function BrandEditor({ org }: { org: string }) {
   const [brandName, setBrandName] = useState("");
   const [voice, setVoice] = useState("");
   const [audience, setAudience] = useState("");
@@ -16,9 +24,12 @@ export default function BrandPage() {
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState("");
   const [newMarket, setNewMarket] = useState("");
+  const mounted = useRef(true);
 
   useEffect(() => {
-    void memoryRequest<IdentityCore>("/identity").then(core=>{
+    mounted.current = true;
+    void memoryRequest<IdentityCore>("/identity", undefined, org).then(core=>{
+      if (!mounted.current) return;
       const passport=core.passport;
       setBrandName(String(passport.brand_name??""));
       const voiceRules=passport.voice_rules??passport.tone??passport.brand_voice??"";
@@ -28,17 +39,19 @@ export default function BrandPage() {
       setMarkets(String(passport.target_location??"").split(",").map(value=>value.trim()).filter(Boolean));
       const constraints=passport.negative_constraints??"";
       setNegative(Array.isArray(constraints)?constraints.join("\n"):String(constraints));setRevision(core.revision);
-    }).catch(error=>setMessage(error.message)).finally(()=>setBusy(false));
-  }, []);
+    }).catch(error=>{if(mounted.current)setMessage(error.message);}).finally(()=>{if(mounted.current)setBusy(false);});
+    return () => { mounted.current = false; };
+  }, [org]);
 
   async function save(){
     setBusy(true);setMessage("");
     try{
-      const core=await memoryRequest<IdentityCore>("/identity",{method:"PUT",body:JSON.stringify({brand_name:brandName.trim(),voice_rules:voice,tone:voice,target_audience:audience,core_offer:promise,target_location:markets.join(", "),negative_constraints:negative,revision})});
+      const core=await memoryRequest<IdentityCore>("/identity",{method:"PUT",body:JSON.stringify({brand_name:brandName.trim(),voice_rules:voice,tone:voice,target_audience:audience,core_offer:promise,target_location:markets.join(", "),negative_constraints:negative,revision})},org);
+      if (!mounted.current) return;
       setRevision(core.revision);setMessage("Saved. All agents use this identity on their next run.");
       window.localStorage.setItem(BRAND_NAME_STORAGE_KEY, brandName.trim());
       window.dispatchEvent(new Event("converza:brand-name-updated"));
-    }catch(error){setMessage(error instanceof Error?error.message:"Save failed");}finally{setBusy(false);}
+    }catch(error){if(mounted.current)setMessage(error instanceof Error?error.message:"Save failed");}finally{if(mounted.current)setBusy(false);}
   }
 
   function addMarket() {
@@ -126,7 +139,9 @@ export default function BrandPage() {
         <textarea aria-label="Negative constraints" value={negative} onChange={event=>setNegative(event.target.value)} rows={4} className="w-full rounded-lg border border-border bg-bg-elevated px-3.5 py-2.5 text-sm" />
       </Field>
 
-      <div className="flex flex-wrap gap-4 text-xs">{["brand_passport.md","voice_rules.md","negative_constraints.md"].map(name=><button key={name} onClick={()=>void downloadIdentity(name).catch(error=>setMessage(error.message))} className="underline">Export {name}</button>)}</div>
+      <div className="flex flex-wrap gap-4 text-xs">{["brand_passport.md","voice_rules.md","negative_constraints.md"].map(name=><button key={name} onClick={()=>void downloadIdentity(name,org).catch(error=>{if(mounted.current)setMessage(error.message);})} className="underline">Export {name}</button>)}</div>
+
+      <MiloBrandConfig />
 
       <div className="flex items-center justify-between border-t border-border pt-6">
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted">
