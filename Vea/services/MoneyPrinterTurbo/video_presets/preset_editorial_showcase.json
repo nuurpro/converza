@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "editorial_showcase",
+  "name": "Editorial Showcase",
+  "version": 1,
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "cuts": {"min_sec": 2.5, "max_sec": 3.5, "boundary": "nearest_word_end"},
+  "crop": "center_cover",
+  "safe_area": {"left": 90, "right": 90, "top": 230, "bottom": 350},
+  "captions": {"font": "DejaVu Sans", "font_size": 62, "bottom_margin": 350, "words_per_phrase": 4, "animation": "word_highlight_fade", "glow": "restrained_dark_outline"},
+  "graphics_fps": 12,
+  "grade": {"contrast": 1.01, "saturation": 0.98, "brightness": 0, "grain_strength": 1, "grain_seed": 7301},
+  "audio": {"narration_lufs": -16, "speech_music_db": -18, "peak_limit": -1.5}
+}

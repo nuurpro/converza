@@ -167,11 +167,12 @@ export async function resolveHitlDraft(
   action: "approve" | "reject" | "edit",
   finalContent?: string,
   expectedRevision?: number,
+  idempotencyKey = crypto.randomUUID(),
 ) {
   if (!expectedRevision) throw new Error("Draft revision is missing. Refresh live state before deciding.");
   return apiJson<HitlResponse>(`/api/hitl/${draftId}/${action}`, {
     method: "POST",
-    headers: {"Idempotency-Key":crypto.randomUUID()},
+    headers: {"Idempotency-Key":idempotencyKey},
     body: JSON.stringify({expected_revision:expectedRevision, ...(action === "edit" ? {final_content:finalContent??""} : {})}),
   });
 }
@@ -217,6 +218,7 @@ export function mapSquadMessage(row: SquadMessageRow, draft?: DraftRow): SquadMe
           resolvedAt: draft.resolved_at,
           ...draftCapabilities(draft),
           artifact: draft.sleyz_artifact,
+          veaArtifact: draft.vea_artifact,
           simulated: draft.simulated,
           supersededBy: draft.superseded_by,
           learningStatus: draft.learning_status,

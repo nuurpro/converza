@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
+import {safeVideoUrl,type VeaVideoArtifact} from "@/lib/data/vea";
 import {
   ArrowLeft,
   ArrowUp,
@@ -398,6 +399,15 @@ export function HitlCard({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(card.content);
+  if(card.veaArtifact)return <div className="mt-2 space-y-3 rounded-xl border border-border p-4 text-xs">
+    <VeaPreview artifact={card.veaArtifact}/>
+    {card.supersededBy||card.veaArtifact.superseded?<p>Replaced by a new video revision. Review the replacement.</p>:<>
+      {card.status==='pending'&&<div className="flex flex-wrap gap-2"><button disabled={busy||!safeVideoUrl(card.veaArtifact.video_url)} onClick={onApprove} className="rounded-full bg-black px-3 py-2 text-white disabled:opacity-50">Approve &amp; Export</button><button disabled={busy} onClick={onSkip} className="rounded-full border border-border px-3 py-2">Reject</button></div>}
+      {card.status==='approved'&&<p>Approved for export · <a href={safeVideoUrl(card.veaArtifact.video_url)} download target="_blank" rel="noopener noreferrer" className="underline">Download MP4</a></p>}
+      {card.status==='rejected'&&<p>Video rejected</p>}
+      <a href={`/agents/vea#video-${encodeURIComponent(card.veaArtifact.id)}`} className="inline-block underline">Review clips in Vea · Swap Clip &amp; Re-render</a>
+    </>}
+  </div>;
   const resolved = card.status !== "pending" || !!card.supersededBy;
   const canSubmitEdit = editText.trim().length > 0;
   const statusClass = {
@@ -520,6 +530,13 @@ export function HitlCard({
   );
 }
 
+export function VeaPreview({artifact}:{artifact:VeaVideoArtifact}){
+ const url=safeVideoUrl(artifact.video_url);
+ return <div className="space-y-2"><p className="text-xs font-medium">{artifact.preset_used} · {artifact.duration_sec.toFixed(1)}s · Revision {artifact.variant_revision}</p>
+  {url?<video controls playsInline preload="metadata" poster={safeVideoUrl(artifact.thumbnail_url)} src={url} className="max-h-[480px] w-full rounded-lg bg-black" aria-label="Rendered video preview"/>:<p role="alert" className="text-xs text-error">Video preview unavailable. Refresh to retrieve the media.</p>}
+ </div>;
+}
+
 export function CompetitorRow({
   competitor,
   header = false,
@@ -564,7 +581,7 @@ export function AgentBackLink() {
   return (
     <Link
       href="/agents"
-      className="inline-flex items-center gap-1.5 px-5 pt-4 font-workspace-mono text-[11px] text-[#999999] transition-colors hover:text-[#111111] md:px-10"
+      className="inline-flex items-center gap-1.5 pl-14 pr-5 pt-4 font-workspace-mono text-[11px] text-[#999999] transition-colors hover:text-[#111111] md:px-10"
     >
       <ArrowLeft size={12} />
       back to agents

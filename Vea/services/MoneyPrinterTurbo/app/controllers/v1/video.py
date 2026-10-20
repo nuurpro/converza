@@ -49,7 +49,24 @@ def capabilities():
         "automatic_publishing_disabled_for_approved_scenes": True,
         "overlay_timing": "aligned_narration_cues_with_character_interpolation",
         "visual_broll_cues": "ordered_stock_footage_search_terms",
+        "deterministic_presets_v1": os.getenv('VEA_ENABLED', '0') == '1',
     }
+
+
+@router.get('/vea/presets', summary='List versioned VEA production recipes')
+def vea_presets():
+    from app.services import vea
+    return utils.get_response(200, {'presets': vea.list_presets()})
+
+
+@router.get('/vea/assets', summary='List eligible organization asset metadata')
+def vea_assets(org_id: str = Query(min_length=1), product_id: str | None = None,
+               language: str = 'en'):
+    from app.services import vea
+    try:
+        return utils.get_response(200, {'assets': vea.public_assets(vea.load_assets(org_id, product_id, language))})
+    except vea.VeaError as exc:
+        raise HttpException(task_id='', status_code=422, message=str(exc), data={'error_code': exc.code}) from exc
 
 _enable_redis = config.app.get("enable_redis", False)
 _redis_host = config.app.get("redis_host", "localhost")

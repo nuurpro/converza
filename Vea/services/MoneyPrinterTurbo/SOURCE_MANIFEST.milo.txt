@@ -48,3 +48,14 @@ Vea/services/MoneyPrinterTurbo/test/services/test_approved_scenes.py
 Vea/services/MoneyPrinterTurbo/test/services/test_milo_api.py
 Vea/services/MoneyPrinterTurbo/test/services/test_milo_durable_state.py
 Vea/services/MoneyPrinterTurbo/test/services/test_milo_runtime.py
+Vea/services/MoneyPrinterTurbo/README.vea.md
+Vea/services/MoneyPrinterTurbo/app/services/vea.py
+Vea/services/MoneyPrinterTurbo/video_presets/preset_high_velocity_d2c.json
+Vea/services/MoneyPrinterTurbo/video_presets/preset_editorial_showcase.json
+Vea/services/MoneyPrinterTurbo/scripts/verify_vea_media.py
+Vea/services/MoneyPrinterTurbo/scripts/evaluate_vea_alignment.py
+Vea/services/MoneyPrinterTurbo/scripts/eval_vea.py
+Vea/services/MoneyPrinterTurbo/test/services/test_vea_pipeline.py
+Vea/services/MoneyPrinterTurbo/test/services/test_vea_contract.py
+Vea/services/MoneyPrinterTurbo/test/services/test_vea_api.py
+Vea/services/MoneyPrinterTurbo/test/services/test_vea_evaluation.py

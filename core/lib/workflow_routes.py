@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import time
+import httpx
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -67,6 +68,14 @@ def create_workflow_router(get_repo, authenticate, assert_owner):
     async def decide(draft_id: str, action: Literal["approve", "edit", "reject"], body: Decision,
                      idempotency_key: str = Header(min_length=1, max_length=200), auth=Depends(authenticate)):
         repo, draft = await scoped_draft(draft_id, auth)
+        if action == 'approve' and draft.get('vea_artifact') and draft['revision'] == body.expected_revision and draft['status'] == 'AWAITING_HITL':
+            from services.vea.store import validate_review
+            try:
+                await validate_review(repo, draft)
+            except (WorkflowConflict, ValueError) as error:
+                raise HTTPException(409, str(error)) from None
+            except (httpx.HTTPError, RuntimeError):
+                raise HTTPException(503, 'Video assets could not be revalidated. Check renderer availability and retry approval.') from None
         return await transition(repo, draft["org_id"], draft_id, action, body, idempotency_key, edited_content=body.final_content)
 
     @router.post("/api/drafts/{draft_id}/resolve")

@@ -1,5 +1,6 @@
 export type DraftState = "PENDING_DRAFT" | "AWAITING_HITL" | "APPROVED" | "EDITED" | "REJECTED" | "PUBLISHED";
 import type { SleyzDraftArtifact, SleyzPlatform } from "./sleyz";
+import type { VeaVideoArtifact } from "./vea";
 
 export interface DraftRow {
   id: string;
@@ -23,6 +24,7 @@ export interface DraftRow {
   delivered_at?: string | null;
   resolved_at?: string | null;
   sleyz_artifact?: SleyzDraftArtifact | null;
+  vea_artifact?: VeaVideoArtifact | null;
   simulated?: boolean;
   platform?: SleyzPlatform | null;
   superseded_by?: string | null;

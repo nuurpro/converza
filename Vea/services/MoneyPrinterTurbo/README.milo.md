@@ -1,5 +1,13 @@
 # Vea renderer for approved Milo campaigns
 
+The versioned VEA pipeline is documented in [README.vea.md](README.vea.md). Enable
+it with `VEA_ENABLED=1` after provisioning its local asset catalog, narration voices
+and Whisper model. Requests carrying bound `vea_config` use deterministic recipes,
+ElevenLabs/Piper and local BM25 selection; they bypass legacy Edge/Pexels settings.
+The compatibility behavior described below remains for approved requests without
+`vea_config`. Final MP4 and JPEG thumbnails are publicly previewable; source media,
+audio, captions, manifests and scripts stay private in approved-only deployments.
+
 This API deployment renders supplied narration and ordered stock-footage search
 cues without generating new narration or campaign text. Approved on-screen text
 uses a JSON timeline aligned to narration subtitles, preserving line breaks and

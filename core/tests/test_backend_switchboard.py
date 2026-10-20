@@ -260,7 +260,7 @@ class SwitchboardTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    async def test_vea_script_failure_posts_visible_squad_failure(self):
+    async def test_vea_request_routes_to_approved_scripts_without_script_generation(self):
         from lib.repository import InMemoryRepository
         from lib.switchboard import handle_direct_agent_message
 
@@ -270,23 +270,15 @@ class SwitchboardTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "lib.switchboard.call_engine",
             AsyncMock(side_effect=RuntimeError("groq unavailable")),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "groq unavailable"):
-                await handle_direct_agent_message(
-                    org_id="org-1",
-                    agent_slug="vea",
-                    text="Render a video",
-                    repo=repo,
-                )
-
-        self.assertEqual(repo.agent_runs[0]["status"], "failed")
-        self.assertTrue(
-            any(
-                "Failed Drafting video script" in message["content"]
-                and "groq unavailable" in message["content"]
-                for message in repo.squad_messages
+        ) as engine:
+            result = await handle_direct_agent_message(
+                org_id="org-1", agent_slug="vea", text="Render a video", repo=repo,
             )
-        )
+
+        engine.assert_not_awaited()
+        self.assertEqual(repo.agent_runs[0]["status"], "completed")
+        self.assertIn('approved Milo script', result['response'])
+        self.assertEqual(repo.drafts, [])
 
     async def test_hitl_edit_requires_real_content_and_completes_linked_run(self):
         from lib.repository import InMemoryRepository

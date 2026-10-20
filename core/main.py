@@ -478,3 +478,5 @@ from services.sleyz.routes import create_sleyz_router
 app.include_router(create_sleyz_router(lambda: get_switchboard_repo(), require_authenticated_user, lambda *args: _assert_user_owns_org(*args)))
 from services.milo.routes import create_milo_router
 app.include_router(create_milo_router(lambda: get_switchboard_repo(), require_authenticated_user, lambda *args: _assert_user_owns_org(*args)))
+from services.vea.routes import create_vea_router
+app.include_router(create_vea_router(lambda: get_switchboard_repo(), require_authenticated_user, lambda *args: _assert_user_owns_org(*args)))

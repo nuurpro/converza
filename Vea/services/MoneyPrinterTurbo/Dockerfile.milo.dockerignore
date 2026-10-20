@@ -5,6 +5,8 @@
 !config.example.toml
 !LICENSE
 !requirements.milo.txt
+!video_presets/
+!video_presets/*.json
 !scripts/
 !scripts/prepare_resources.py
 **/__pycache__/

@@ -71,6 +71,8 @@ async def run_agent(
 
     draft = existing_draft
     try:
+        if agent_slug == 'vea' and existing_draft is not None:
+            raise WorkflowConflict('Select an approved Milo script in the Vea workspace; legacy script generation is disabled')
         async with narrate_step(
             repo=repo,
             org_id=org_id,
@@ -89,6 +91,12 @@ async def run_agent(
                 raise ValueError(f"Unknown agent_slug: {agent_slug}")
 
         if draft is None and await classify_output(agent_slug, text) == 'customer_copy':
+            if agent_slug == 'vea':
+                response = 'Select an approved Milo script in the Vea workspace to render a preset variant. Create or edit scripts in Milo, then approve the script before rendering.'
+                await repo.insert_agent_memory(org_id, 'vea', 'assistant', response)
+                await repo.insert_squad_message(org_id, 'vea', response, related_run_id=run_id)
+                await repo.update_agent_run(run_id, {'status':'completed','completed_at':datetime.now(timezone.utc).isoformat()})
+                return {'run_id':run_id,'agent_slug':'vea','response':response}
             if agent_slug == 'milo':
                 from services.milo.store import MiloStore
                 campaign = await MiloStore(repo).enqueue(org_id, 'manual', prompt=text, key=f'switchboard:{run_id}')
@@ -299,52 +307,7 @@ async def _run_vea(
     repo: SwitchboardRepository,
     context: dict[str, Any],
 ) -> str:
-    async with narrate_step(
-        repo=repo,
-        org_id=org_id,
-        agent_slug="vea",
-        run_id=run_id,
-        step_label="Drafting video script",
-    ):
-        script = await call_engine(
-            build_system_prompt(context),
-            (
-                "Write a concise 15-second vertical video script for the requested ad. "
-                "Return only the spoken script, no markdown, no scene labels.\n\n"
-                f"REQUEST:\n{text}"
-            ),
-        )
-        if not script.strip():
-            script = await call_engine(
-                build_system_prompt(context),
-                (
-                    "Return exactly one short spoken ad script sentence. "
-                    "Do not return analysis, labels, or markdown.\n\n"
-                    f"REQUEST:\n{text}"
-                ),
-            )
-        if not script.strip():
-            raise RuntimeError("Vea script generation returned empty content")
-
-    async with narrate_step(
-        repo=repo,
-        org_id=org_id,
-        agent_slug="vea",
-        run_id=run_id,
-        step_label="Rendering video",
-        completed_detail="video URL ready",
-    ):
-        render_result = await call_moneyprinterturbo(
-            script=script,
-            video_subject="Converza campaign ad",
-        )
-
-    video_url = render_result["video_url"]
-
-    return (
-        "15s campaign video ready for review.\n\n"
-        f"Script: {script}\n\nPreview URL: {video_url}"
-    )
+    raise WorkflowConflict('Vea renders approved Milo scripts only; select an approved script in the Vea workspace')
 
 
 async def _run_sleyz(
@@ -383,12 +346,18 @@ async def resolve_hitl(
     draft = await repo.get_draft(draft_id)
     if not draft or (org_id is not None and draft['org_id'] != org_id):
         raise KeyError(draft_id)
+    if action == 'approve' and draft.get('vea_artifact') and draft['status'] == 'AWAITING_HITL' and (expected_revision is None or draft['revision'] == expected_revision):
+        from services.vea.store import validate_review
+        await validate_review(repo, draft)
     return await repo.transition_draft(org_id or draft['org_id'], draft_id, action,
         expected_revision if expected_revision is not None else draft['revision'],
         idempotency_key or str(uuid.uuid4()), edited_content=edited_content)
 
 
 async def retry_generation(*, org_id, draft_id, expected_revision, idempotency_key, repo):
+    original = await repo.get_draft(draft_id)
+    if original and original.get('org_id') == org_id and original.get('agent_slug') == 'vea':
+        raise WorkflowConflict('Use Vea variant retry with an approved Milo script')
     draft = await repo.transition_draft(org_id, draft_id, 'retry_generation', expected_revision, idempotency_key)
     return await run_agent(org_id=org_id, agent_slug=draft['agent_slug'], text=draft['inbound_text'],
         triggered_by='owner', repo=repo, existing_draft=draft)

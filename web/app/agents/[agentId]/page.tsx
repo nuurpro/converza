@@ -18,6 +18,7 @@ import {
 import { sendAgentMessage } from "@/lib/api/workspace";
 import { MiloCampaigns } from "@/components/workspace/MiloCampaigns";
 import { SleyzInbox } from "@/components/workspace/SleyzInbox";
+import { VeaVideos } from "@/components/workspace/VeaVideos";
 
 function isAgentId(value: string): value is AgentId {
   return value === "milo" || value === "sleyz" || value === "vea";
@@ -91,7 +92,8 @@ export default function AgentChatPage() {
       <AgentBackLink />
       {activeAgentId === "sleyz" && <SleyzInbox />}
       {activeAgentId === "milo" && <MiloCampaigns />}
-      {messages.length === 0 ? (
+      {activeAgentId === "vea" && <VeaVideos />}
+      {activeAgentId !== "vea" && (messages.length === 0 ? (
         <ChatEmptyState
           eyebrow={config.eyebrow}
           color={agent.color}
@@ -104,13 +106,13 @@ export default function AgentChatPage() {
         />
       ) : (
         <ChatThread messages={messages} agentColor={agent.color} />
-      )}
-      <ChatInputBar
+      ))}
+      {activeAgentId !== "vea" && <ChatInputBar
         placeholder={config.placeholder}
         showTaskToggle
         isSending={isSending}
         onSend={sendMessage}
-      />
+      />}
     </div>
   );
 }

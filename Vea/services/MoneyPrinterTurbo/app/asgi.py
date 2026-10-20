@@ -71,7 +71,7 @@ task_dir = utils.task_dir()
 if config.app.get('approved_only', False):
     @app.get('/tasks/{task_id}/{filename}')
     def approved_video_preview(task_id: UUID, filename: str):
-        if not re.fullmatch(r'final-[1-9][0-9]*\.mp4', filename):
+        if not re.fullmatch(r'final-[1-9][0-9]*\.(mp4|jpg)', filename):
             raise HTTPException(status_code=404, detail='Video not found')
         try:
             video_file = file_security.resolve_path_within_directory(task_dir, f'{task_id}/{filename}')
@@ -79,7 +79,7 @@ if config.app.get('approved_only', False):
             raise HTTPException(status_code=404, detail='Video not found') from None
         if not os.path.isfile(video_file):
             raise HTTPException(status_code=404, detail='Video not found')
-        return FileResponse(video_file, media_type='video/mp4')
+        return FileResponse(video_file, media_type='image/jpeg' if filename.endswith('.jpg') else 'video/mp4')
 else:
     app.mount('/tasks', StaticFiles(directory=task_dir, html=True, follow_symlink=True), name='')
 

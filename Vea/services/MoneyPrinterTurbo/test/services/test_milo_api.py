@@ -21,6 +21,9 @@ class MiloProviderApiTests(unittest.TestCase):
         cls.folder=tempfile.TemporaryDirectory()
         os.environ['MPT_STATE_DB']=str(Path(cls.folder.name)/'renderer.sqlite3')
         from app.asgi import app
+        from app.services import state as sm
+        from app.services.sqlite_state import SQLiteState
+        sm.state=SQLiteState(os.environ['MPT_STATE_DB'])
         from fastapi.testclient import TestClient
         cls.client=TestClient(app,headers={'Authorization':'Bearer local-control-test-key'})
         cls.client.__enter__()

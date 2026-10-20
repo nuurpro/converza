@@ -45,6 +45,8 @@ node_modules/
 out/
 next-env.d.ts
 .gstack/
+brand-assets/
+vea-models/
 
 # OpenClaw engine (cloned at repo root, not tracked)
 /backend/

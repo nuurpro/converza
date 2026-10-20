@@ -140,6 +140,15 @@ class MiloStore:
         return deepcopy(row) if row and row['org_id'] == org else None
 
     def _campaign_status(self, job, status):
+        variant_id = job.get('payload', {}).get('variant_id')
+        if variant_id:
+            from services.vea.store import _state as vea_state
+            variant = vea_state(self.repo)['variants'].get(variant_id)
+            if variant:
+                variant.update(status={'running':'rendering'}.get(status,status),
+                               error=(job.get('payload',{}).get('render_error') or job.get('last_error')) if status=='failed' else None,updated_at=_now())
+                if not variant['is_default']:
+                    return
         c = self.state['campaigns'].get(job.get('campaign_id'))
         if c:
             c['build_status' if job['kind'] == 'build' else 'status'] = status
@@ -287,6 +296,9 @@ class MiloStore:
             return deepcopy(j)
 
     async def complete_build(self, job, result):
+        if job.get('payload', {}).get('variant_id'):
+            from services.vea.store import VeaStore
+            return await VeaStore(self.repo).complete(job,result)
         if not self.memory:
             return await self._rpc('built', job=job['id'], token=job['lease_token'], result=result)
         async with self.repo._lock:
@@ -371,23 +383,28 @@ class MiloStore:
             previous = self._replay(org, key, fingerprint)
             if previous is not None:
                 return previous
-            j = self.state['jobs'].get(job_id)
-            if not j or j['org_id'] != org or j['status'] != 'failed':
-                raise WorkflowConflict('Only failed jobs can be retried')
-            if j['kind'] == 'build' and j['payload'].get('submission_state') in ('submitting', 'submission_started', 'ambiguous') and not (j['payload'].get('provider_task_id') or j['payload'].get('task_id')):
-                raise WorkflowConflict('Build requires provider receipt reconciliation before retry')
-            if j['kind'] == 'build' and j['payload'].get('submission_state') == 'provider_failed':
-                payload = j['payload']
-                attempt = payload.get('provider_attempt', 1)
-                payload.setdefault('provider_attempts', []).append(dict(provider_attempt=attempt,
-                    provider_task_id=payload.get('provider_task_id') or payload.get('task_id'),
-                    submission_state='provider_failed', finished_at=_now()))
-                payload.pop('provider_task_id', None)
-                payload.pop('task_id', None)
-                payload.update(submission_state='not_submitted', provider_attempt=attempt+1)
-            j.update(status='pending', attempts=0, available_at=0, lease_token=None, lease_until=None, last_error=None)
-            self._campaign_status(j, 'queued')
+            j = self._retry_locked(org, job_id)
             return self._receipt(org, key, fingerprint, j)
+
+    def _retry_locked(self, org, job_id):
+        """Reuse the uncertainty fence from transactional variant retry."""
+        j = self.state['jobs'].get(job_id)
+        if not j or j['org_id'] != org or j['status'] != 'failed':
+            raise WorkflowConflict('Only failed jobs can be retried')
+        if j['kind'] == 'build' and j['payload'].get('submission_state') in ('submitting', 'submission_started', 'ambiguous') and not (j['payload'].get('provider_task_id') or j['payload'].get('task_id')):
+            raise WorkflowConflict('Build requires provider receipt reconciliation before retry')
+        if j['kind'] == 'build' and j['payload'].get('submission_state') == 'provider_failed':
+            payload = j['payload']
+            attempt = payload.get('provider_attempt', 1)
+            payload.setdefault('provider_attempts', []).append(dict(provider_attempt=attempt,
+                provider_task_id=payload.get('provider_task_id') or payload.get('task_id'),
+                submission_state='provider_failed', finished_at=_now()))
+            payload.pop('provider_task_id', None)
+            payload.pop('task_id', None)
+            payload.update(submission_state='not_submitted', provider_attempt=attempt+1)
+        j.update(status='pending', attempts=0, available_at=0, lease_token=None, lease_until=None, last_error=None)
+        self._campaign_status(j, 'queued')
+        return j
 
     async def jobs(self, org):
         if not self.memory:
