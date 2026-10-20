@@ -65,6 +65,48 @@ class MiloRenderBinding(BaseModel):
     script_revision: StrictInt = Field(ge=1)
     provider_attempt: StrictInt = Field(default=1, ge=1)
     script_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    vea_config_sha256: Optional[str] = Field(default=None, pattern=r"^[a-f0-9]{64}$", exclude_if=lambda value: value is None)
+
+
+class VeaBrandSnapshot(BaseModel):
+    model_config = pydantic.ConfigDict(extra="forbid")
+    revision: StrictInt | str
+    hex_colors: List[str] = Field(default_factory=list, max_length=12)
+
+    @model_validator(mode="after")
+    def validate_colors(self):
+        import re
+        if any(not re.fullmatch(r'#[a-fA-F0-9]{6}', color) for color in self.hex_colors):
+            raise ValueError('Brand palette must contain six-digit hex colors')
+        return self
+
+
+class VeaClipOverride(BaseModel):
+    model_config = pydantic.ConfigDict(extra="forbid")
+    segment_id: str = Field(min_length=1, max_length=128)
+    asset_id: str = Field(min_length=1, max_length=128)
+
+
+class VeaRenderConfig(BaseModel):
+    model_config = pydantic.ConfigDict(extra="forbid")
+    schema_version: StrictInt = 1
+    preset_id: str = Field(pattern=r'^(high_velocity_d2c|editorial_showcase)$')
+    preset_version: Optional[StrictInt] = Field(default=None, ge=1)
+    preset_sha256: Optional[str] = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    brand_snapshot: VeaBrandSnapshot
+    product_id: Optional[str] = Field(default=None, max_length=128)
+    variant_id: str = Field(min_length=1, max_length=128)
+    variant_revision: StrictInt = Field(ge=1)
+    clip_overrides: List[VeaClipOverride] = Field(default_factory=list, max_length=200)
+    reuse_manifest: Optional[dict] = None
+
+    @model_validator(mode="after")
+    def require_known_version_and_unique_segments(self):
+        if self.schema_version != 1:
+            raise ValueError('Unsupported VEA config version')
+        if len({o.segment_id for o in self.clip_overrides}) != len(self.clip_overrides):
+            raise ValueError('Clip overrides must identify distinct timeline segments')
+        return self
 
 
 class ApprovedVideoScene(BaseModel):
@@ -98,6 +140,7 @@ class VideoParams(BaseModel):
     video_script: str = ""  # Script used to generate the video
     approved_scenes: Optional[List[ApprovedVideoScene]] = None
     milo_binding: Optional[MiloRenderBinding] = None
+    vea_config: Optional[VeaRenderConfig] = None
     video_terms: Optional[str | list] = None  # Keywords used to generate the video
     video_aspect: Optional[VideoAspect] = VideoAspect.portrait.value
     video_concat_mode: Optional[VideoConcatMode] = VideoConcatMode.random.value
@@ -139,6 +182,25 @@ class VideoParams(BaseModel):
 
     @model_validator(mode="after")
     def preserve_approved_scene_contract(self):
+        if self.vea_config is not None:
+            if not self.approved_scenes or not self.milo_binding:
+                raise ValueError('VEA rendering requires a bound, approved Milo script')
+            canonical = json.dumps(self.vea_config.model_dump(mode='json'), sort_keys=True,
+                                   ensure_ascii=False, separators=(',', ':'))
+            if hashlib.sha256(canonical.encode('utf-8')).hexdigest() != self.milo_binding.vea_config_sha256:
+                raise ValueError('VEA configuration must match the immutable receipt binding')
+            if self.video_count != 1 or self.video_aspect != VideoAspect.portrait:
+                raise ValueError('VEA requires one 9:16 output per variant')
+            reused = self.vea_config.reuse_manifest
+            if reused and (reused.get('org_id') != self.milo_binding.org_id or
+                           reused.get('script_sha256') != self.milo_binding.script_sha256 or
+                           reused.get('preset', {}).get('id') != self.vea_config.preset_id or
+                           reused.get('brand_snapshot') != self.vea_config.brand_snapshot.model_dump()):
+                raise ValueError('Reused composition must match organization, approved script, preset and brand')
+            if reused and self.vea_config.preset_sha256 and reused.get('preset_sha256') != self.vea_config.preset_sha256:
+                raise ValueError('Reused composition must match its pinned preset hash')
+        elif self.milo_binding and self.milo_binding.vea_config_sha256:
+            raise ValueError('VEA receipt binding requires its configuration')
         if self.approved_scenes is None:
             return self
         if not self.approved_scenes:

@@ -10,6 +10,7 @@ RUN apt-get update \
 COPY requirements.milo.txt ./
 RUN pip install --no-cache-dir -r requirements.milo.txt
 COPY app ./app
+COPY video_presets ./video_presets
 COPY main.py config.example.toml LICENSE ./
 COPY scripts/prepare_resources.py ./scripts/prepare_resources.py
 RUN python scripts/prepare_resources.py \

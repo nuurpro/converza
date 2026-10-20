@@ -348,6 +348,18 @@ def _start(task_id, params: VideoParams, stop_at: str = "video"):
     logger.info(f"start task: {task_id}, stop_at: {stop_at}")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=5)
 
+    if getattr(params, 'vea_config', None) is not None:
+        from app.services import vea
+        if stop_at != 'video':
+            raise vea.VeaError('invalid_vea_request', 'VEA produces complete video variants')
+        if os.getenv('VEA_ENABLED', '0') != '1':
+            raise vea.VeaError('vea_disabled', 'Enable VEA_ENABLED after provisioning assets, voices and alignment models')
+        result = vea.start_render(task_id, params, utils.task_dir(task_id),
+                                  utils.storage_dir('vea_cache', create=True),
+                                  progress=lambda value: sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=value))
+        sm.state.update_task(task_id, state=const.TASK_STATE_COMPLETE, progress=100, **result)
+        return result
+
     # 1. Generate script
     video_script = generate_script(task_id, params)
     if not video_script or ("Error: " in video_script and not getattr(params, "approved_scenes", None)):
@@ -512,12 +524,17 @@ def start(task_id, params: VideoParams, stop_at: str = "video"):
         return _start(task_id, params, stop_at)
     try:
         return _start(task_id, params, stop_at)
-    except Exception:
+    except Exception as exc:
         # Background task managers do not record exceptions in task state.
         # Failed alignment/rendering must be terminal and visible to Milo.
         logger.exception(f"Approved scene render failed for task {task_id}")
-        sm.state.update_task(task_id, state=const.TASK_STATE_FAILED,
-                             error_code="approved_scene_render_failed")
+        error_code = getattr(exc, 'code', 'approved_scene_render_failed')
+        details = {}
+        if getattr(params, 'vea_config', None) is not None:
+            details = {'error_message': (str(exc) if getattr(exc, 'code', None) and error_code != 'render_failed'
+                                         else 'Video rendering failed; inspect renderer logs and retry the failed variant'),
+                       'render_telemetry': {'failure_code': error_code}}
+        sm.state.update_task(task_id, state=const.TASK_STATE_FAILED, error_code=error_code, **details)
         return None
 
 

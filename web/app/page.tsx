@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -21,7 +21,9 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {useWorkspace} from "@/lib/hooks/useWorkspace";
-import { StatCard } from "@/components/workspace/AgentWorkspace";
+import { HitlCard, StatCard } from "@/components/workspace/AgentWorkspace";
+import {useMiloOrg} from "@/lib/hooks/useMiloOrg";
+import {downloadVideo,type VeaVideoArtifact} from "@/lib/data/vea";
 import { getDashboardStats, type DashboardStat, type SquadMessageData } from "@/lib/data/workspace";
 import {
   fetchDashboardStats,
@@ -46,6 +48,7 @@ interface Approval {
   body: string;
   impact: string;
   revision: number;
+  veaArtifact?: VeaVideoArtifact | null;
 }
 
 const agentLabels: Record<string, string> = {
@@ -89,18 +92,24 @@ function ledgerEventFromStep(row: AgentRunStepRow): LedgerEvent {
 }
 
 export default function DashboardPage() {
+  const org=useMiloOrg();return org?<Dashboard key={org}/>:<p className="p-5 text-sm">Sign in to review approvals.</p>;
+}
+function Dashboard() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [editingApprovalId, setEditingApprovalId] = useState<string | null>(null);
   const [editDrafts, setEditDrafts] = useState<Record<string, string>>({});
   const [ledger, setLedger] = useState<LedgerEvent[]>([]);
   const [stats, setStats] = useState<DashboardStat[]>([]);
+  const [busy,setBusy]=useState(false);
+  const alive=useRef(false),lock=useRef(false),keys=useRef(new Map<string,string>());
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
 
   const workspace=useWorkspace();
   useEffect(()=>{
-    setApprovals(Object.values(workspace.drafts).filter(draft=>draft.status==="AWAITING_HITL").map(draft=>({
+    setApprovals(Object.values(workspace.drafts).filter(draft=>draft.status==="AWAITING_HITL"&&!draft.superseded_by&&!draft.vea_artifact?.superseded).map(draft=>({
       id:draft.id,revision:draft.revision,eyebrow:agentLabels[draft.agent_slug]??draft.agent_slug,
       title:draft.agent_slug==="vea"?"Review generated video asset":"Review agent draft",
-      body:draft.draft_content,impact:"Approval required before publishing",
+      body:draft.draft_content,impact:draft.vea_artifact?"Approval required before export":"Approval required before publishing",veaArtifact:draft.vea_artifact,
     })));
     const latestSteps=new Map<string,AgentRunStepRow>();
     for(const step of workspace.steps as unknown as AgentRunStepRow[])latestSteps.set(`${step.agent_run_id}:${step.step_label}`,step);
@@ -109,12 +118,18 @@ export default function DashboardPage() {
   },[workspace.drafts,workspace.steps]);
 
   async function resolve(id: string, action: "approve" | "reject" | "edit", finalContent?: string) {
+    const draft=workspace.drafts[id];if(!draft||lock.current||(draft.vea_artifact&&action==='edit'))return;
+    lock.current=true;setBusy(true);const signature=JSON.stringify([id,draft.revision,action,finalContent]);let key=keys.current.get(signature);if(!key){key=crypto.randomUUID();keys.current.set(signature,key);}
     try {
-      await resolveHitlDraft(id, action, finalContent, workspace.drafts[id]?.revision);
+      const result=await resolveHitlDraft(id, action, finalContent, draft.revision,key);keys.current.delete(signature);
+      if(alive.current&&action==='approve'&&draft.vea_artifact&&result.status==='APPROVED'&&!result.superseded_by&&!result.vea_artifact?.superseded)downloadVideo(result.vea_artifact??draft.vea_artifact);
     } catch(error) {
-      workspace.setError(error instanceof Error?error.message:"Decision failed");
+      if(alive.current)workspace.setError(error instanceof Error?error.message:"Decision failed");
       return;
+    } finally {
+      lock.current=false;if(alive.current)setBusy(false);
     }
+    if(!alive.current)return;
     setApprovals((arr) => arr.filter((a) => a.id !== id));
     setEditingApprovalId(null);
     setEditDrafts((current) => {
@@ -267,7 +282,7 @@ export default function DashboardPage() {
 
             <div className="space-y-4">
               <AnimatePresence mode="popLayout">
-                {approvals.map((ap, i) => (
+                {approvals.map((ap, i) => (ap.veaArtifact ? <HitlCard key={ap.id} card={{id:ap.id,label:ap.title,status:'pending',content:ap.body,revision:ap.revision,veaArtifact:ap.veaArtifact}} busy={busy} onApprove={()=>void resolve(ap.id,'approve')} onSkip={()=>void resolve(ap.id,'reject')} onEdit={()=>{}}/> :
                   <motion.article
                     key={ap.id}
                     layout

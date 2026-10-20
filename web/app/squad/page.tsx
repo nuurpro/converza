@@ -1,24 +1,34 @@
 "use client";
-import {useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {ChatInputBar,SquadMessage,WorkspaceHeader} from "@/components/workspace/AgentWorkspace";
 import type {DraftStatus} from "@/lib/data/workspace";
 import {mapSquadMessage,resolveHitlDraft,sendSquadMessage,resolveBuyerConversation,retryDraftGeneration,deliverBuyerReply,refreshBuyerDraft,retryDraftLearning,type SquadMessageRow} from "@/lib/api/workspace";
 import {withUnlinkedDrafts} from "@/lib/data/sleyz";
 import {useWorkspace} from "@/lib/hooks/useWorkspace";
+import {useMiloOrg} from "@/lib/hooks/useMiloOrg";
+import {downloadVideo} from "@/lib/data/vea";
 
 export default function SquadChatPage(){
+  const org=useMiloOrg();return org?<SquadChat key={org}/>:<p className="p-5 text-sm">Sign in to review the squad.</p>;
+}
+function SquadChat(){
   const {messages,drafts,error,setError}=useWorkspace();
   const [sending,setSending]=useState(false);
   const [busy,setBusy]=useState<string|null>(null);
   const [localMessages,setLocalMessages]=useState<SquadMessageRow[]>([]);
+  const decisionKeys=useRef(new Map<string,string>()),alive=useRef(false),decisionLock=useRef(false);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const rows=messages as unknown as SquadMessageRow[];
   const merged=[...rows,...localMessages.filter(row=>!rows.some(existing=>existing.id===row.id))];
   const all=withUnlinkedDrafts(merged,drafts);
   async function decide(id:string,status:DraftStatus,content?:string){
-    const draft=drafts[id];if(!draft||busy)return;setBusy(id);setError(null);
-    try{await resolveHitlDraft(id,status==="approved"?"approve":status==="rejected"?"reject":"edit",content,draft.revision);}
-    catch(failure){setError(failure instanceof Error?failure.message:"Decision failed");}
-    finally{setBusy(null);}
+    const draft=drafts[id];if(!draft||busy||decisionLock.current)return;
+    if(draft.vea_artifact&&status==="edited")return;
+    decisionLock.current=true;setBusy(id);setError(null);
+    const signature=JSON.stringify([id,draft.revision,status,content]);let key=decisionKeys.current.get(signature);if(!key){key=crypto.randomUUID();decisionKeys.current.set(signature,key);}
+    try{const result=await resolveHitlDraft(id,status==="approved"?"approve":status==="rejected"?"reject":"edit",content,draft.revision,key);decisionKeys.current.delete(signature);if(alive.current&&draft.vea_artifact&&result.status==="APPROVED"&&!result.superseded_by&&!result.vea_artifact?.superseded)downloadVideo(result.vea_artifact??draft.vea_artifact);}
+    catch(failure){if(alive.current)setError(failure instanceof Error?failure.message:"Decision failed");}
+    finally{decisionLock.current=false;if(alive.current)setBusy(null);}
   }
   async function act(id:string,action:"resolve"|"retry"|"deliver"|"refresh"|"learn"){
     const draft=drafts[id];if(!draft||busy)return;setBusy(id);setError(null);

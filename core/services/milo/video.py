@@ -57,11 +57,15 @@ def build_binding(job: dict[str, Any]) -> dict[str, Any]:
     payload = job['payload']
     serialized = json.dumps({'video_script': payload['video_script'], 'language': payload.get('language', 'en')},
                             sort_keys=True, ensure_ascii=False, separators=(',', ':'))
-    return {'job_id': job['id'], 'org_id': job['org_id'],
+    binding = {'job_id': job['id'], 'org_id': job['org_id'],
             'campaign_id': job.get('campaign_id') or payload['campaign_id'],
             'script_revision': payload.get('approved_revision', payload.get('script_revision')),
             'provider_attempt': payload.get('provider_attempt', 1),
             'script_sha256': hashlib.sha256(serialized.encode('utf-8')).hexdigest()}
+    if payload.get('vea_config') is not None:
+        config = json.dumps(payload['vea_config'], sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+        binding['vea_config_sha256'] = hashlib.sha256(config.encode('utf-8')).hexdigest()
+    return binding
 
 
 def _verify_binding(task: dict[str, Any], job: dict[str, Any]) -> None:
@@ -101,7 +105,7 @@ def _provider_payload(job: dict[str, Any]) -> dict[str, Any]:
             raise ValueError('Approved scenes require narration, b-roll cues, and on-screen text strings')
         if not scene['spoken_narration'].strip() or not scene['visual_broll_cues'].strip():
             raise ValueError('Approved narration and b-roll cues cannot be blank')
-    return {
+    result = {
         'video_subject': 'Approved Milo campaign',
         'video_script': '\n\n'.join(scene['spoken_narration'] for scene in scenes),
         'approved_scenes': deepcopy(scenes),
@@ -115,14 +119,18 @@ def _provider_payload(job: dict[str, Any]) -> dict[str, Any]:
         'subtitle_enabled': True, 'bgm_type': '', 'bgm_volume': 0,
         'font_name': 'DejaVuSans.ttf', 'font_size': 54, 'n_threads': 2,
     }
+    if payload.get('vea_config') is not None:
+        result['vea_config'] = deepcopy(payload['vea_config'])
+    return result
 
 
 async def render_approved_script(job: dict[str, Any], store: Any, *,
         client: httpx.AsyncClient | None = None, timeout_seconds: float = 180) -> dict[str, Any]:
     payload = _provider_payload(job)
-    task_id = job['payload'].get('provider_task_id') or job.get('provider_task_id')
+    task_id = (job['payload'].get('provider_task_id') or job['payload'].get('task_id')
+               or job.get('provider_task_id') or job.get('task_id'))
     submission_state = job['payload'].get('submission_state') or job.get('submission_state')
-    if not task_id and submission_state in {'submission_started', 'ambiguous'}:
+    if not task_id and submission_state in {'submitting', 'submission_started', 'ambiguous'}:
         raise SubmissionUncertain('Provider submission needs task-ID reconciliation; automatic resubmission blocked')
     if client is None:
         async with httpx.AsyncClient(timeout=30.0) as own_client:
@@ -135,6 +143,8 @@ async def render_approved_script(job: dict[str, Any], store: Any, *,
             raise RuntimeError('Vea provider lacks approved scene support; deploy the bundled MoneyPrinterTurbo update')
         try:
             supported = capabilities.json()
+            if payload.get('vea_config') is not None and supported.get('deterministic_presets_v1') is not True:
+                raise RuntimeError('Vea provider lacks deterministic preset support; deploy the updated renderer')
             if (supported.get('approved_scenes_v1') is not True or supported.get('milo_job_binding_v1') is not True
                     or supported.get('durable_state_v1') is not True or supported.get('control_api_auth_v1') is not True
                     or supported.get('provider_attempt_binding_v1') is not True
@@ -142,6 +152,22 @@ async def render_approved_script(job: dict[str, Any], store: Any, *,
                 raise ValueError('missing capability')
         except (ValueError, AttributeError) as exc:
             raise RuntimeError('Vea provider lacks approved scene support; deploy the bundled MoneyPrinterTurbo update') from exc
+        config = payload.get('vea_config')
+        if config is not None and not config.get('preset_sha256'):
+            response = await client.get(f'{base_url}/api/v1/vea/presets', headers=_control_headers())
+            response.raise_for_status()
+            try:
+                recipes = response.json()['data']['presets']
+                recipe = next(row for row in recipes if row['id'] == config['preset_id'])
+                version, digest = recipe['version'], recipe['sha256']
+                if type(version) is not int or version < 1 or not isinstance(digest,str) or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+                    raise ValueError('invalid recipe pin')
+            except (ValueError, KeyError, TypeError, StopIteration) as exc:
+                raise RuntimeError('Vea provider returned an invalid preset catalog') from exc
+            config = {**config, 'preset_version': version, 'preset_sha256': digest}
+            await store.update_build(job, {'vea_config':config})
+            job['payload']['vea_config'] = deepcopy(config)
+            payload = _provider_payload(job)
         await store.update_build(job, {'submission_state': 'submission_started'})
         try:
             response = await client.post(f'{base_url}/api/v1/videos', json=payload, headers=_control_headers())
@@ -174,7 +200,13 @@ async def render_approved_script(job: dict[str, Any], store: Any, *,
             raise RuntimeError('Vea returned malformed task status') from exc
         if task.get('state') == -1:
             _verify_binding(task, job)
-            await store.update_build(job, {'submission_state': 'provider_failed'})
+            failure = {'submission_state': 'provider_failed'}
+            if payload.get('vea_config') is not None:
+                code = task.get('error_code')
+                message = task.get('error_message')
+                failure.update(render_error_code=code[:100] if isinstance(code,str) else 'render_failed',
+                               render_error=message[:1000] if isinstance(message,str) else 'Vea render failed. Check renderer configuration and retry.')
+            await store.update_build(job, failure)
             raise ProviderRenderFailed('Vea provider render failed; explicit retry required')
         if task.get('state') == 1:
             _verify_binding(task, job)
@@ -182,8 +214,36 @@ async def render_approved_script(job: dict[str, Any], store: Any, *,
             if not isinstance(videos, list) or not videos or not isinstance(videos[0], str) or not videos[0]:
                 raise RuntimeError('Vea provider completed without a video')
             video_url = _public_video_url(videos[0], base_url)
-            return {'task_id': task_id, 'video_url': video_url, 'output_path': video_url,
+            result = {'task_id': task_id, 'video_url': video_url, 'output_path': video_url,
                 'approved_script': deepcopy(job['payload']['video_script']),
                 'approved_revision': job['payload'].get('approved_revision', job['payload'].get('script_revision')), 'raw': task}
+            if payload.get('vea_config') is not None:
+                artifact = task.get('vea_artifact')
+                if not isinstance(artifact, dict):
+                    raise RuntimeError('Vea provider completed without a structured video artifact')
+                artifact = deepcopy(artifact)
+                manifest = artifact.pop('composition_manifest', None) or task.get('composition_manifest')
+                if artifact.pop('org_id', job['org_id']) != job['org_id']:
+                    raise RuntimeError('Vea artifact organization does not match the approved variant binding')
+                for key in ('video_url', 'thumbnail_url'):
+                    if isinstance(artifact.get(key), str):
+                        artifact[key] = _public_video_url(artifact[key], base_url)
+                from services.vea.contracts import VeaVideoArtifact
+                try:
+                    artifact = VeaVideoArtifact.model_validate(artifact).model_dump(mode='json')
+                except ValueError as exc:
+                    raise RuntimeError('Vea provider returned an invalid video artifact') from exc
+                config = payload['vea_config']
+                if (artifact['id'] != config['variant_id']
+                        or artifact['variant_revision'] != config['variant_revision']
+                        or artifact['preset_used'] != config['preset_id']
+                        or (config.get('preset_version') is not None and artifact['preset_version'] != config['preset_version'])
+                        or (config.get('preset_sha256') is not None and artifact['preset_sha256'] != config['preset_sha256'])
+                        or artifact['source_milo_script_id'] != build_binding(job)['campaign_id']
+                        or artifact['approved_script_revision'] != build_binding(job)['script_revision']):
+                    raise RuntimeError('Vea artifact does not match the approved variant binding')
+                result.update(vea_artifact=artifact, video_url=artifact['video_url'], output_path=artifact['video_url'])
+                result['composition_manifest'] = manifest
+            return result
         await asyncio.sleep(min(2, max(0, deadline - asyncio.get_running_loop().time())))
     raise TimeoutError(f'Vea render timed out; resume polling provider task {task_id}')

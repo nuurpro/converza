@@ -13,6 +13,8 @@ const filename=fileURLToPath(new URL('../../components/workspace/AgentWorkspace.
 const compiled=new Module(filename);
 compiled.filename=filename;
 compiled.paths=Module._nodeModulePaths(fileURLToPath(new URL('../../components/workspace/',import.meta.url)));
+const actualRequire=compiled.require.bind(compiled);
+compiled.require=id=>id==='@/lib/data/vea'?require('./vea.ts'):actualRequire(id);
 compiled._compile(ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,filename);
 const {HitlCard}=compiled.exports;
 const artifact={schema_version:1,customer_handle:'@buyer',platform:'instagram',incoming_message:'Can I buy two?',intent_score:.9,intent:'HOT',detected_objection:'price',cited_brand_passport_atoms:[{source_id:'source-1',revision:3,atom_index:0}],draft_reply:'Original generated reply',checkout_link:'https://shop.example/checkout?sku=A',product_snapshot:[{id:'p',sku:'A',name:'Serum',price:'12.00',currency:'USD',stock_count:5,revision:2}],quantity:2,operator_notes:['Confirm selection']};

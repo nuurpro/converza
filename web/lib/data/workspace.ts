@@ -1,4 +1,5 @@
 import type { SleyzDraftArtifact } from "./sleyz";
+import type { VeaVideoArtifact } from "./vea";
 
 export type AgentId = "milo" | "sleyz" | "vea";
 
@@ -61,6 +62,7 @@ export interface HitlCardData {
   canDeliver?: boolean;
   canRefresh?: boolean;
   artifact?: SleyzDraftArtifact | null;
+  veaArtifact?: VeaVideoArtifact | null;
   simulated?: boolean;
   supersededBy?: string | null;
   learningStatus?: string | null;

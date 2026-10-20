@@ -45,6 +45,9 @@ class MiloWorker:
                 ('Campaign blocked by brand compliance. Review the listed violations in the Milo workspace.' if row['status']=='blocked' else
                  'Campaign ready for review. Approve its video script in the Milo workspace to enqueue Vea.'))
         elif job['kind']=='build':
+            from services.vea.store import prepare_build, enabled
+            if job['payload'].get('variant_id') or job['payload'].get('vea_config') or enabled():
+                job = await prepare_build(job, self.store)
             result=await self.renderer(job,self.store)
             row=await self.store.complete_build(job,result)
             approved=datetime.fromisoformat(job['created_at'].replace('Z','+00:00'))
