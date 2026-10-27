@@ -11,6 +11,27 @@ from test_milo_pipeline import artifact, fixture
 
 
 class WorkerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_generation_scope_survives_approval_and_vea_builds(self):
+        from services.vea.store import VeaStore, prepare_build
+        campaign = await self.store.enqueue('a', 'manual', key='manual-scope')
+        model = AsyncMock(side_effect=[artifact(), {'passed': True, 'violations': []}])
+        worker = MiloWorker(self.repo, model=model, context_loader=AsyncMock(return_value=self.context))
+        await worker.run_once('generate')
+        current = await self.store.get_campaign('a', campaign['id'])
+        self.assertEqual((current['product_id'], current['topic']), ('p', 'durability'))
+        replay = await self.store.enqueue('a', 'manual', key='manual-scope')
+        self.assertEqual(replay, current)
+        approved = await self.store.decide_script('a', current['id'], 'approve', current['revision'], 'approve-scope')
+        job = await prepare_build((await self.store.claim('build'))[0], self.store)
+        self.assertEqual(job['payload']['vea_config']['product_id'], 'p')
+        self.assertEqual(job['payload']['video_script'], current['artifact']['video_script'])
+        vea = VeaStore(self.repo)
+        variants = await vea.list_variants('a')
+        self.assertEqual(variants[0]['product_id'], 'p')
+        alternate = await vea.create_variant('a', current['id'], approved['revision'], 'editorial_showcase', 'alternate')
+        self.assertEqual(alternate['product_id'], 'p')
+        self.assertEqual(vea.milo.state['jobs'][alternate['job_id']]['payload']['vea_config']['product_id'], 'p')
+
     async def asyncSetUp(self):
         self.repo=InMemoryRepository(); self.context=fixture(); self.store=MiloStore(self.repo)
         self.repo.seed_brand_passport('a',{**self.context['passport'],'revision':3,'proof_points':self.context['proof_points']})

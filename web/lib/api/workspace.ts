@@ -6,16 +6,12 @@ import type {
   SquadMessageData,
 } from "@/lib/data/workspace";
 import { workspaceTokens } from "@/lib/data/workspace";
-import { authHeaders, getSupabaseAccessToken } from "@/lib/api/session";
-import { getCurrentOrgId, FALLBACK_ORG_ID } from "@/lib/org";
+import { authenticatedFetch, getSupabaseAccessToken } from "@/lib/api/session";
+import { getCurrentOrgId, getWorkspaceSession, subscribeSession } from "@/lib/org";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { presentationStatus, type DraftRow, type WorkspaceEvent } from "@/lib/data/workflow";
 import {subscribeWorkspaceTransport} from "@/lib/data/workspaceStream";
 import { draftCapabilities, simulationRequest, type SimulationInput } from "@/lib/data/sleyz";
-
-export const DEFAULT_ORG_ID =
-  process.env.NEXT_PUBLIC_DEFAULT_ORG_ID ??
-  FALLBACK_ORG_ID;
 
 export interface AgentMessageResponse {
   run_id: string;
@@ -126,11 +122,8 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = await authHeaders({
-    "Content-Type": "application/json",
-    ...(init?.headers ?? {}),
-  });
-  const response = await fetch(backendPath(path), {
+  const headers = new Headers(init?.headers);headers.set('Content-Type','application/json');
+  const response = await authenticatedFetch(backendPath(path), {
     ...init,
     headers,
   });
@@ -167,21 +160,23 @@ export async function resolveHitlDraft(
   action: "approve" | "reject" | "edit",
   finalContent?: string,
   expectedRevision?: number,
-  idempotencyKey = crypto.randomUUID(),
+  idempotencyKey?: string,
 ) {
   if (!expectedRevision) throw new Error("Draft revision is missing. Refresh live state before deciding.");
   return apiJson<HitlResponse>(`/api/hitl/${draftId}/${action}`, {
     method: "POST",
-    headers: {"Idempotency-Key":idempotencyKey},
+    headers: idempotencyKey ? {"Idempotency-Key":idempotencyKey} : {},
     body: JSON.stringify({expected_revision:expectedRevision, ...(action === "edit" ? {final_content:finalContent??""} : {})}),
   });
 }
 
 export async function createSquadEventSource(orgId = getCurrentOrgId(), cursor?: number) {
+  const scope=getWorkspaceSession();
   const params = new URLSearchParams({ org_id: orgId });
   if (cursor !== undefined) params.set("cursor",String(cursor));
   const token = await getSupabaseAccessToken();
-  if (token) params.set("access_token", token);
+  if (!token || scope.signal.aborted || scope.orgId!==orgId) throw new Error('Workspace session changed');
+  params.set("access_token", token);
   return new EventSource(backendPath(`/api/squad/stream?${params.toString()}`));
 }
 
@@ -248,24 +243,24 @@ export function mapRunStepToActivity(row: AgentRunStepRow): ActivityFeedItem {
 }
 
 export async function resolveBuyerConversation(draft: DraftRow) {
-  return apiJson<DraftRow>(`/api/drafts/${draft.id}/resolve`,{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
+  return apiJson<DraftRow>(`/api/drafts/${draft.id}/resolve`,{method:"POST",body:JSON.stringify({expected_revision:draft.revision})});
 }
 
 export async function retryDraftGeneration(draft: DraftRow) {
-  return apiJson(`/api/drafts/${draft.id}/retry-generation`,{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
+  return apiJson(`/api/drafts/${draft.id}/retry-generation`,{method:"POST",body:JSON.stringify({expected_revision:draft.revision})});
 }
 
 export async function deliverBuyerReply(draft: DraftRow) {
   if (!draftCapabilities(draft).canDeliver) throw new Error("This draft is not eligible for customer delivery.");
-  return apiJson<DraftRow>(`/api/drafts/${draft.id}/deliver`,{method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
+  return apiJson<DraftRow>(`/api/drafts/${draft.id}/deliver`,{method:"POST",body:JSON.stringify({expected_revision:draft.revision})});
 }
 
 export async function refreshBuyerDraft(draft: DraftRow) {
-  return apiJson<{inbound_id:string;draft_id:string}>(`/api/drafts/${draft.id}/refresh`, {method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
+  return apiJson<{inbound_id:string;draft_id:string}>(`/api/drafts/${draft.id}/refresh`, {method:"POST",body:JSON.stringify({expected_revision:draft.revision})});
 }
 
 export async function retryDraftLearning(draft: DraftRow) {
-  return apiJson(`/api/drafts/${draft.id}/retry-learning`, {method:"POST",headers:{"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({expected_revision:draft.revision})});
+  return apiJson(`/api/drafts/${draft.id}/retry-learning`, {method:"POST",body:JSON.stringify({expected_revision:draft.revision})});
 }
 
 export async function simulateInboundDm(input: SimulationInput, key: string, orgId = getCurrentOrgId()) {
@@ -282,11 +277,12 @@ export async function fetchSleyzConnections(orgId = getCurrentOrgId()) {
 
 export function subscribeWorkspace(onEvent: (event:WorkspaceEvent)=>void, onError:(message:string|null)=>void) {
   return subscribeWorkspaceTransport(onEvent,onError,{
-    getOrgId:owner=>getCurrentOrgId(owner),
+    getOrgId:()=>getWorkspaceSession().orgId,
     createSource:createSquadEventSource,
     subscribeAuth:callback=>{
       const listener=getSupabaseBrowserClient()?.auth.onAuthStateChange((event,session)=>callback(event,session?.user.id));
-      return ()=>listener?.data.subscription.unsubscribe();
+      const stop=subscribeSession(()=>callback(getWorkspaceSession().orgId?'SIGNED_IN':'SIGNED_OUT',getWorkspaceSession().user?.id));
+      return ()=>{stop();listener?.data.subscription.unsubscribe();};
     },
   });
 }

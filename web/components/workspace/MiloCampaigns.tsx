@@ -58,7 +58,7 @@ export function CampaignCard({campaign,busy,onDecide}:{campaign:MiloCampaign;bus
  const artifact=campaign.artifact,stale=editor.revision!==campaign.revision,videoUrl=campaign.result?.video_url??campaign.build_result?.video_url;
  const capabilities=campaignCapabilities(campaign,editor.dirty,stale);
  function changeScene(index:number,field:keyof MiloScene,value:string){setEditor(current=>({...current,dirty:true,scenes:current.scenes.map((scene,i)=>i===index?{...scene,[field]:value}:scene)}));}
- return <article className="space-y-4 rounded-xl border border-border p-4 text-xs">
+ return <article id={`campaign-${campaign.id}`} className="space-y-4 rounded-xl border border-border p-4 text-xs">
   <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-sm font-medium">{artifact?.trigger_reason??`${campaign.trigger} campaign`}</h3><span className="font-workspace-mono text-[10px] text-text-muted">Revision {campaign.revision} · {campaign.status.replaceAll('_',' ')}</span></div>
   <p className="text-text-muted">Trigger: {campaign.trigger} · Script: {campaign.script_status}{artifact?` · ${artifact.language} · ${artifact.target_persona.name}`:''}</p>
   {campaign.last_error&&<p role="alert" className="text-error">{campaign.last_error}</p>}

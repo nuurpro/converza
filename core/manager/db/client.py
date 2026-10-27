@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 
 import httpx
 from supabase import create_client, Client
-from dotenv import load_dotenv
+from services.runtime import load_environment
 
-load_dotenv()
+load_environment()
 
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]

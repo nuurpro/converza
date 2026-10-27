@@ -1,14 +1,8 @@
 import asyncio
 import logging
-from pathlib import Path
-import sys
+from services.runtime import load_environment
 
-from dotenv import load_dotenv
-
-ROOT=Path(__file__).resolve().parents[3]
-sys.path.insert(0,str(ROOT))
-load_dotenv(ROOT/'Sleyz'/'.env')
-load_dotenv(ROOT/'core'/'.env')
+load_environment()
 
 from db import get_supabase
 from lib.repository import SupabaseRepository

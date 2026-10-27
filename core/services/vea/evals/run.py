@@ -9,7 +9,7 @@ import json
 from lib.repository import InMemoryRepository
 from services.milo.store import MiloStore
 from services.workflow.state import WorkflowConflict
-from ..store import VeaStore, prepare_build
+from ..store import VeaStore, prepare_build, _relevant_replacement
 
 
 async def run():
@@ -21,9 +21,15 @@ async def run():
         script=[{'spoken_narration':text,'visual_broll_cues':'Product stitching','on_screen_text':text}]
         job=(await milo.claim('generate'))[0]
         campaign=await milo.complete_generation(job,{'brand_revision':1,'proof_references':[],'video_script':script,'language':language},
-            {'passed':True,'semantic_checked':True,'checked_brand_revision':1})
+            {'passed':True,'semantic_checked':True,'checked_brand_revision':1},selected_scope={'product_id':'bag','topic':'durability'})
         campaign=await milo.decide_script('brand',campaign['id'],'approve',campaign['revision'],'approve')
         job=await prepare_build((await milo.claim('build'))[0],milo)
+        cases.append({'id':'selected_scope_'+language,'kind':'safety','passed':campaign['product_id']=='bag' and job['payload']['vea_config']['product_id']=='bag'})
+        matching={'tags':{language:['STITCHING!']}}
+        unrelated={'tags':{language:['Mountain']}}
+        cases.append({'id':'visual_relevance_'+language,'kind':'safety','passed':
+            _relevant_replacement(matching,{'scene_index':0},campaign,language) and
+            not _relevant_replacement(unrelated,{'scene_index':0},campaign,language)})
         cases.append({'id':'approved_words_'+language,'kind':'safety','passed':job['payload']['video_script']==script and job['payload']['language']==language})
         rows=await asyncio.gather(*(vea.create_variant('brand',campaign['id'],campaign['revision'],'editorial_showcase','manual') for _ in range(4)))
         cases.append({'id':'idempotency_'+language,'kind':'quality','passed':len({r['id'] for r in rows})==1 and len(await vea.list_variants('brand'))==2})

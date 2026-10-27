@@ -1,0 +1,463 @@
+{
+  "supported_root": "E:\\Coding\\Converza",
+  "recovery_directory": "E:\\Coding\\_Converza_recovery\\20261027-122215",
+  "completion": "blocked_physical_retirement_and_desktop_cwd",
+  "keep": [
+    "core/main.py",
+    "core/db.py",
+    "core/lib",
+    "core/services",
+    "core/manager",
+    "core/migrations",
+    "core/tests",
+    "core/evals",
+    "core/scripts",
+    "web",
+    "Milo/identity.md",
+    "Sleyz/identity.md",
+    "Sleyz/sales_main.py",
+    "Sleyz/agents",
+    "Sleyz/routers",
+    "Sleyz/db",
+    "Sleyz/personas",
+    "Sleyz/bridge",
+    "Vea/identity.md",
+    "Vea/services/MoneyPrinterTurbo/app",
+    "Vea/services/MoneyPrinterTurbo/video_presets",
+    "Vea/services/MoneyPrinterTurbo/test",
+    "Vea/services/MoneyPrinterTurbo/LICENSE",
+    "compose.yml",
+    "deployment",
+    "scripts",
+    "docs"
+  ],
+  "removed_source_files": [
+    {
+      "path": ".env.example",
+      "original_sha256": "cdb3d04bb53025c6af213fdecf47846f255b22989da4a334d2bb62e801f4d51c"
+    },
+    {
+      "path": "Milo/agents/content_creator.py",
+      "original_sha256": "ebaed625aed51fb8da76ac3a2f96498b398207bd549cf6550c7dc6cb791cbc82"
+    },
+    {
+      "path": "agents/__init__.py",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "core/agents/__init__.py",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "core/agents/content_creator.py",
+      "original_sha256": "9bcef258920fb844f214372bd9253d1019465c08f7db4e36948e0935c172a656"
+    },
+    {
+      "path": "core/agents/dag_runner.py",
+      "original_sha256": "5238fcf8291e73788b8bc3dbb83b0275aa31ed1e4d0dc5223f44adeb6fd95c31"
+    },
+    {
+      "path": "core/agents/manager.py",
+      "original_sha256": "444e66634087cbfa9aee094fb1b9ddbacd3c37ab8ac8260ac89232fa314fbe4f"
+    },
+    {
+      "path": "core/agents/orchestrator.py",
+      "original_sha256": "dcd56ee9ee8254497d7ae04f2e83552af00aded9bdbcf868353ca60c2a67fc15"
+    },
+    {
+      "path": "core/agents/tools.py",
+      "original_sha256": "351f0ac800a80367e79682d96281809ddfc18aab49b8aac06e885ddd33b6b272"
+    },
+    {
+      "path": "core/llm.py",
+      "original_sha256": "9a105a8a3e9c297e2ffa3fd0e4e4a89301b6050dc129f2feae98a3d6145598c3"
+    },
+    {
+      "path": "core/manager/Dockerfile",
+      "original_sha256": "70b9ac0c832d9685183e2f0b3ac68b3a6187c48feb99837442d85f0523fd633d"
+    },
+    {
+      "path": "core/manager/run_push.bat",
+      "original_sha256": "a62042685d74602af1e6a2666bbc2827c4752d3027a3d9f577d25dec26d95bc0"
+    },
+    {
+      "path": "core/static/index.html",
+      "original_sha256": "9ed7095b4b879f2e54ca0c4dffe332a487509c6f1fbd439de2e1d037f6f34341"
+    },
+    {
+      "path": "core/static/landing.html",
+      "original_sha256": "ee9606ced71711ae5a5c2e28f634507b9c572f044ae662c19bb05fe231b951b2"
+    },
+    {
+      "path": "db.py",
+      "original_sha256": "d714077ff9045cdf618744e3e22afee408ea51469339243ec2a6366d4d0ae533"
+    },
+    {
+      "path": "identities/milo.md",
+      "original_sha256": "ff1d69456b657bfbe2659d7dc1bcf1bfe2f035ecd487c46e6e685cf822350c52"
+    },
+    {
+      "path": "identities/sleyz.md",
+      "original_sha256": "d2f7032126bf52197baab9b8d70c4bb801849c47f3a47822bb2b359b6666f587"
+    },
+    {
+      "path": "identities/vea.md",
+      "original_sha256": "0ac1914d1f4a2c1ecc0d7882f0dac652cac5f74f6a6953f88678129f616056cb"
+    },
+    {
+      "path": "lib/__init__.py",
+      "original_sha256": "2212c00a8254d9dd8ef3253579d73ecef3ede2693c613c92f73e316c39028af0"
+    },
+    {
+      "path": "lib/context_assembler.py",
+      "original_sha256": "85b94aaad00961b80c0287295dfe6484ad855afe051385e0466c4010af308276"
+    },
+    {
+      "path": "lib/engine.py",
+      "original_sha256": "1adfa10c4f6536e75a88be9022fbb6c7c906a9b2fbfb297eddc404377c7de61b"
+    },
+    {
+      "path": "lib/mentions.py",
+      "original_sha256": "efa4bd311d232decf111bb2a6fe19ca7da6136e836381314605ccf3819a9485d"
+    },
+    {
+      "path": "lib/moneyprinter.py",
+      "original_sha256": "f90fd44f838edb8adb128e50734bd243a4d762be8bc1ec46301b8dcb75814923"
+    },
+    {
+      "path": "lib/narration.py",
+      "original_sha256": "cd8f3562a504d042277d15f30a40f424474a3e257627cbf1537da629fb0ddb4c"
+    },
+    {
+      "path": "lib/repository.py",
+      "original_sha256": "036d7244f477459062b76bf35830135bdcad4de459de432ede3e4ac1ec0dca1a"
+    },
+    {
+      "path": "lib/switchboard.py",
+      "original_sha256": "9a26074be70627af0b7790c6a69fa78377588dc5dd8ef4cdd5f0878143df733c"
+    },
+    {
+      "path": "main.py",
+      "original_sha256": "7d1ce776ac3209c91a86bdb083b2a4f873d4f522a626d6fe541e0853afa72821"
+    },
+    {
+      "path": "migrations/001_agent_switchboard.sql",
+      "original_sha256": "a3a0af194669d883cdc2a7f098974ab820f5f68459f2ecb06d1b8816c194166a"
+    },
+    {
+      "path": "migrations/002_service_role_switchboard_policies.sql",
+      "original_sha256": "cc57a7b024021d09641ded4a3752ab0a5f9f156987f010fcad01ce3da2b039a7"
+    },
+    {
+      "path": "migrations/003_onboarding_paywall.sql",
+      "original_sha256": "f3f240ce09fca2b8e5516bce27012b7ee4040434cb19ca85c4516f7c2c1304c3"
+    },
+    {
+      "path": "package-lock.json",
+      "original_sha256": "6eb0e2152ea7df6169a88e4e8bf663dac0f087ae70d8bbb934c1520952ef80c8"
+    },
+    {
+      "path": "package.json",
+      "original_sha256": "2b90d64186f450bcf2ff514eba6e6e13431feab79bf3f9b2cf14002e85be5831"
+    },
+    {
+      "path": "requirements.txt",
+      "original_sha256": "49a59285892b8ca180361156c02bb8c43f83ec5c648c453ab456ed384af69af1"
+    },
+    {
+      "path": "static/landing.html",
+      "original_sha256": "3ca03918e5762d224fddaaa808f8e7f7306775097e55c8628a23bf86ca66c328"
+    },
+    {
+      "path": "tests/test_backend_switchboard.py",
+      "original_sha256": "bed4a71e5ac33d162e70de405288eafe5c359c9b8cc0bf8d8178ae65597a8720"
+    },
+    {
+      "path": "tests/test_security_ownership.py",
+      "original_sha256": "4e1d80295a6839ef7202be5cec92af261b2f25a62e46d2a0a73567fc0d8661f5"
+    },
+    {
+      "path": "web/app/analytics/page.tsx",
+      "original_sha256": "f309c0bdbf008b861b65bfc1d91b4a999227d4aa322f69dcc2446f4b2960fd82"
+    },
+    {
+      "path": "web/app/api/chat/route.ts",
+      "original_sha256": "fcf9e65cdaf435df6b0474f2678c14508d70870f93706d86d60455cd9693a587"
+    },
+    {
+      "path": "web/app/calendar/page.tsx",
+      "original_sha256": "86a8453d87ca4c83b0546b788e5023d59ca1f0d8e4d250a934e4a4868b8cdb56"
+    },
+    {
+      "path": "web/app/competitors/page.tsx",
+      "original_sha256": "20469d3994a7eed95ccdda8082888d80ba72dc41f3966b3c74fd6a512ac06f94"
+    },
+    {
+      "path": "web/app/integrations/page.tsx",
+      "original_sha256": "9a0fd7f8f614a44f45b505ed860625fda773058c28fa3785395c7ce4964a980a"
+    },
+    {
+      "path": "web/app/office/page.tsx",
+      "original_sha256": "bb6b123a4e80509f3257287e04de34bf5e16cc31111fbf8bce57693dfcf23456"
+    },
+    {
+      "path": "web/app/projects/page.tsx",
+      "original_sha256": "6925465e24fa9d24e75535a86c62744f829fdbc14818c88612969f0b0cb2c39e"
+    },
+    {
+      "path": "web/app/settings/billing/page.tsx",
+      "original_sha256": "147d0ebf1aced536e5b2c1f8e1305b44af3acaa82b4915682624ae453f70f405"
+    },
+    {
+      "path": "web/app/settings/integrations/page.tsx",
+      "original_sha256": "512d46b0db769931f1f61eead922140a381fb77aa22d0cc76f00cdb3c334e89a"
+    },
+    {
+      "path": "web/app/settings/models/page.tsx",
+      "original_sha256": "cda5adf8bd5f51189fd3748872fdce9cd891ca2a90f81924ba1642ba8e3cf60f"
+    },
+    {
+      "path": "web/app/settings/profile/page.tsx",
+      "original_sha256": "1e5fac8dd9693fa5810584eaff9d391bc52b6d8ad186f112a5406c582fa9aa07"
+    },
+    {
+      "path": "web/app/settings/tokens/page.tsx",
+      "original_sha256": "b4509d7cbd948f273b104ce6ede5fe0171426e97f916cab6bc60c4a29db813dd"
+    },
+    {
+      "path": "web/components/dag/DagVisualizer.tsx",
+      "original_sha256": "a2b86302bb9662ab663896d9de382054c8e601eb1daa5e1ce91a14c4f5f6b5c3"
+    },
+    {
+      "path": "web/components/hitl/ApprovalCard.tsx",
+      "original_sha256": "3e2fc6e609b5b46fb7274b209a6286143a13fba574e00fb8ad52fef580bfa23b"
+    },
+    {
+      "path": "web/components/hitl/PermissionPill.tsx",
+      "original_sha256": "261a7fdcd80819fe94aa8189781f01509f78a97e32fd5e9ac7f532a3b127e608"
+    },
+    {
+      "path": "web/components/layout/ConfigPageShell.tsx",
+      "original_sha256": "4b56742313d4abe16df2b8716afb2512408ee323b6d78118490e77f9393eb691"
+    }
+  ],
+  "preserved_roots": [
+    {
+      "root": "E:\\Coding\\Converza",
+      "archive": "Converza.tar.gz",
+      "sha256": "2c2885a2bd23b15bfbead019ad71ad49441539ab1cad20a80701c1378670da1a",
+      "files": 1048,
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_ai",
+      "archive": "Converza_ai.tar.gz",
+      "sha256": "743fb14eab14b3da9971728d83525d97645674b6b403519731310a58da186784",
+      "files": 13543,
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\converza_bot",
+      "archive": "converza_bot.tar.gz",
+      "sha256": "b7757fff28df1d229a14728d987c6bc5c0a8ce2d7ae939633321f8ff76622c26",
+      "files": 34,
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_demo",
+      "archive": "Converza_demo.tar.gz",
+      "sha256": "c2bda3f907e039d6b482a1c07b83d95921eee634b71eacc661f8305ef302d3fc",
+      "files": 40,
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\converza_intention",
+      "archive": "converza_intention.tar.gz",
+      "sha256": "6e3296cf749dff37e6cd9cfe533fd1a38e04a5fb1ab1c96e592342c3bb542c73",
+      "files": 26,
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\converza_manager",
+      "archive": "converza_manager.tar.gz",
+      "sha256": "116c4a383308c145827190d88c56e6d63435c6812f34a35f1c1c54f7f102782b",
+      "files": 15,
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_photo",
+      "archive": "Converza_photo.tar.gz",
+      "sha256": "58b3b4a7d4ac7a5012026bc49724d2979e6ca41783a8a33e06811b0fd591cafa",
+      "files": 30,
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_sales",
+      "archive": "Converza_sales.tar.gz",
+      "sha256": "b50afc3a861840fa7ae8a5a27070d746ee1f19f4f700b5cc9755022ac7828e31",
+      "files": 24,
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_hermes",
+      "archive": "Converza_hermes.tar.gz",
+      "sha256": "505f80f0aa6dd51992259e5325d66822aa26cd48c568bb31a0784ad24b4c5933",
+      "files": 486,
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\converza-comparison",
+      "archive": "converza-comparison.tar.gz",
+      "sha256": "3b45759526096cb3fabbcbac2704e05b0bc32e918e7736472acd291c84983d93",
+      "files": 1,
+      "verified": true
+    }
+  ],
+  "preserved_git_repositories": [
+    {
+      "root": "E:\\Coding\\Converza",
+      "directory": "git\\0",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_ai",
+      "directory": "git\\1",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_ai\\.agents\\skills\\gstack",
+      "directory": "git\\2",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_ai\\.claude\\skills\\gstack",
+      "directory": "git\\3",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_ai\\.claude\\worktrees\\mystifying-wozniak-b43996",
+      "directory": "git\\4",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_ai\\.claude\\worktrees\\mystifying-wozniak-b43996\\services\\MoneyPrinterTurbo",
+      "directory": "git\\5",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_ai\\.claude\\worktrees\\pensive-wozniak-353232",
+      "directory": "git\\6",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_ai\\backend",
+      "directory": "git\\7",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\converza_bot",
+      "directory": "git\\8",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\converza_bot\\.claude\\worktrees\\sad-bhaskara-9ffede",
+      "directory": "git\\9",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_demo",
+      "directory": "git\\10",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\converza_intention",
+      "directory": "git\\11",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\converza_manager",
+      "directory": "git\\12",
+      "verified": true
+    },
+    {
+      "root": "E:\\Coding\\Converza_hermes",
+      "directory": "git\\13",
+      "verified": true
+    }
+  ],
+  "pending_retirement": [
+    {
+      "path": "E:\\Coding\\Converza_ai",
+      "state": "preserved_not_removed",
+      "gate": "desktop_cwd_and_Git_worktree_unregister"
+    },
+    {
+      "path": "E:\\Coding\\converza_bot",
+      "state": "preserved_not_removed",
+      "gate": "desktop_cwd_and_Git_worktree_unregister"
+    },
+    {
+      "path": "E:\\Coding\\Converza_demo",
+      "state": "preserved_not_removed",
+      "gate": "directory_deletion_policy"
+    },
+    {
+      "path": "E:\\Coding\\converza_intention",
+      "state": "preserved_not_removed",
+      "gate": "directory_deletion_policy"
+    },
+    {
+      "path": "E:\\Coding\\converza_manager",
+      "state": "preserved_not_removed",
+      "gate": "directory_deletion_policy"
+    },
+    {
+      "path": "E:\\Coding\\Converza_photo",
+      "state": "preserved_not_removed",
+      "gate": "directory_deletion_policy"
+    },
+    {
+      "path": "E:\\Coding\\Converza_sales",
+      "state": "preserved_not_removed",
+      "gate": "directory_deletion_policy"
+    },
+    {
+      "path": "E:\\Coding\\converza-comparison",
+      "state": "preserved_not_removed",
+      "gate": "directory_deletion_policy"
+    }
+  ],
+  "retired_roots": [
+    {
+      "path": "E:\\Coding\\Converza_hermes",
+      "method": "git worktree remove --force after verified preservation"
+    }
+  ],
+  "unregistered_nested_worktrees": [
+    "converza_bot/.claude/worktrees/sad-bhaskara-9ffede",
+    "Converza_ai/.claude/worktrees/pensive-wozniak-353232",
+    "Converza_ai/.claude/worktrees/mystifying-wozniak-b43996"
+  ],
+  "pending_supported_tree_cleanup": [
+    "Sleyz/support-bot",
+    "Sleyz/intention",
+    "Vea/photo-bot",
+    "_archive",
+    "Vea/services/MoneyPrinterTurbo/webui",
+    "Vea/services/MoneyPrinterTurbo/webui.bat",
+    "Vea/services/MoneyPrinterTurbo/webui.sh",
+    "Vea/services/MoneyPrinterTurbo/cli.py",
+    "Vea/services/MoneyPrinterTurbo/docker-compose.yml",
+    "Vea/services/MoneyPrinterTurbo/docker-compose.gpu.yml",
+    "Vea/services/MoneyPrinterTurbo/docker-compose.release.yml"
+  ],
+  "renderer": {
+    "storage_volume": "converza-vea-storage",
+    "port": 8080,
+    "snapshot": "E:\\Coding\\_Converza_recovery\\20261027-122215\\renderer-final",
+    "verified_storage_files": 110,
+    "legacy_containers": "removed_after_verified_cutover",
+    "volumes_deleted": false
+  },
+  "secrets": "Private archives and configuration only; no secret values are included here."
+}

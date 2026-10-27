@@ -24,7 +24,9 @@ import {useWorkspace} from "@/lib/hooks/useWorkspace";
 import { HitlCard, StatCard } from "@/components/workspace/AgentWorkspace";
 import {useMiloOrg} from "@/lib/hooks/useMiloOrg";
 import {downloadVideo,type VeaVideoArtifact} from "@/lib/data/vea";
-import { getDashboardStats, type DashboardStat, type SquadMessageData } from "@/lib/data/workspace";
+import { type DashboardStat } from "@/lib/data/workspace";
+import {fetchMiloCampaigns} from '@/lib/api/milo';
+import {pendingCampaignReviews} from '@/lib/data/dashboard';
 import {
   fetchDashboardStats,
   mapSquadMessage,
@@ -92,19 +94,26 @@ function ledgerEventFromStep(row: AgentRunStepRow): LedgerEvent {
 }
 
 export default function DashboardPage() {
-  const org=useMiloOrg();return org?<Dashboard key={org}/>:<p className="p-5 text-sm">Sign in to review approvals.</p>;
+  const org=useMiloOrg();return org?<Dashboard key={org} org={org}/>:<p className="p-5 text-sm">Sign in to review approvals.</p>;
 }
-function Dashboard() {
+function Dashboard({org}:{org:string}) {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [editingApprovalId, setEditingApprovalId] = useState<string | null>(null);
   const [editDrafts, setEditDrafts] = useState<Record<string, string>>({});
   const [ledger, setLedger] = useState<LedgerEvent[]>([]);
   const [stats, setStats] = useState<DashboardStat[]>([]);
+  const [campaigns,setCampaigns]=useState<ReturnType<typeof pendingCampaignReviews>>([]);
+  const [campaignError,setCampaignError]=useState('');
   const [busy,setBusy]=useState(false);
   const alive=useRef(false),lock=useRef(false),keys=useRef(new Map<string,string>());
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
 
   const workspace=useWorkspace();
+  useEffect(()=>{
+    let active=true;
+    const refresh=()=>void fetchMiloCampaigns(org).then(result=>{if(active){setCampaigns(pendingCampaignReviews(result.campaigns));setCampaignError('');}}).catch(error=>{if(active)setCampaignError(error.message);});
+    refresh();const timer=setInterval(refresh,5000);return()=>{active=false;clearInterval(timer);};
+  },[org]);
   useEffect(()=>{
     setApprovals(Object.values(workspace.drafts).filter(draft=>draft.status==="AWAITING_HITL"&&!draft.superseded_by&&!draft.vea_artifact?.superseded).map(draft=>({
       id:draft.id,revision:draft.revision,eyebrow:agentLabels[draft.agent_slug]??draft.agent_slug,
@@ -114,7 +123,8 @@ function Dashboard() {
     const latestSteps=new Map<string,AgentRunStepRow>();
     for(const step of workspace.steps as unknown as AgentRunStepRow[])latestSteps.set(`${step.agent_run_id}:${step.step_label}`,step);
     setLedger([...latestSteps.values()].slice(-9).reverse().map(ledgerEventFromStep));
-    void fetchDashboardStats().then(setStats).catch(error=>workspace.setError(error.message));
+    let active=true;void fetchDashboardStats(org).then(result=>{if(active)setStats(result);}).catch(error=>{if(active)workspace.setError(error.message);});
+    return()=>{active=false;};
   },[workspace.drafts,workspace.steps]);
 
   async function resolve(id: string, action: "approve" | "reject" | "edit", finalContent?: string) {
@@ -137,7 +147,7 @@ function Dashboard() {
       delete next[id];
       return next;
     });
-    void fetchDashboardStats().then(setStats).catch(() => undefined);
+    void fetchDashboardStats(org).then(result=>{if(alive.current)setStats(result);}).catch(() => undefined);
   }
 
   return (
@@ -177,12 +187,12 @@ function Dashboard() {
                   Connect your channels
                 </span>
                 <span className="mt-0.5 block text-[12.5px] text-[#666666]">
-                  Telegram, Instagram, TikTok, WhatsApp, and website chat setup lives here.
+                  Review Sleyz connection status for your workspace.
                 </span>
               </span>
             </span>
             <span className="font-workspace-mono text-[10px] uppercase tracking-[0.12em] text-[#999999]">
-              Phase B placeholder →
+              View status →
             </span>
           </Link>
 
@@ -201,13 +211,9 @@ function Dashboard() {
                   The Swarm Ledger
                 </h2>
                 <p className="mt-1 font-workspace-mono text-[10px] uppercase tracking-[0.1em] text-[#999999]">
-                  Live · {ledger.length} events today
+                  Live · {ledger.length} events
                 </p>
               </div>
-              <button className="inline-flex items-center gap-1.5 rounded-full border border-[#e5e5e5] px-3 py-1.5 text-[12px] text-[#666666] transition-colors hover:bg-[#f4f4f5] hover:text-[#111111]">
-                <ListFilter size={12} strokeWidth={1.8} />
-                Filter
-              </button>
             </header>
 
             <ol className="relative space-y-1">
@@ -273,14 +279,20 @@ function Dashboard() {
                   Approval queue
                 </h2>
                 <p className="mt-1 font-workspace-mono text-[10px] uppercase tracking-[0.1em] text-[#999999]">
-                  {approvals.length === 0
+                  {approvals.length + campaigns.length === 0
                     ? "Caught up"
-                    : `${approvals.length} waiting on you`}
+                    : `${approvals.length + campaigns.length} waiting on you`}
                 </p>
               </div>
             </header>
 
             <div className="space-y-4">
+              {campaignError&&<p role="alert" className="text-sm text-error">Milo campaigns: {campaignError}</p>}
+              {campaigns.map(campaign=><article key={campaign.id} className="rounded-2xl border border-[#e5e5e5] bg-white p-5">
+                <p className="font-workspace-mono text-[10px] uppercase text-milo">Milo · {campaign.status.replaceAll('_',' ')}</p>
+                <h3 className="mt-2 text-[15.5px] font-medium">{campaign.artifact?.trigger_reason||'Campaign needs review'}</h3>
+                <Link href={campaign.href} className="mt-3 inline-flex items-center gap-1 text-sm underline">Review campaign <ArrowUpRight size={14}/></Link>
+              </article>)}
               <AnimatePresence mode="popLayout">
                 {approvals.map((ap, i) => (ap.veaArtifact ? <HitlCard key={ap.id} card={{id:ap.id,label:ap.title,status:'pending',content:ap.body,revision:ap.revision,veaArtifact:ap.veaArtifact}} busy={busy} onApprove={()=>void resolve(ap.id,'approve')} onSkip={()=>void resolve(ap.id,'reject')} onEdit={()=>{}}/> :
                   <motion.article
@@ -330,9 +342,9 @@ function Dashboard() {
                     )}
 
                     <div className="mt-5 flex items-center justify-between">
-                      <button className="text-[12px] text-[#666666] transition-colors hover:text-[#111111]">
+                      <Link href="/squad" className="text-[12px] text-[#666666] transition-colors hover:text-[#111111]">
                         More context →
-                      </button>
+                      </Link>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => void resolve(ap.id, "reject")}
@@ -378,7 +390,7 @@ function Dashboard() {
                 ))}
               </AnimatePresence>
 
-              {approvals.length === 0 && (
+              {approvals.length === 0 && campaigns.length===0 && !campaignError && (
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}

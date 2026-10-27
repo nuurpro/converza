@@ -4,9 +4,6 @@ import assert from "node:assert/strict";
 import {
   getAgents,
   getAgentChatConfig,
-  getDashboardStats,
-  getSquadMessages,
-  getCompetitors,
   getWorkspaceNavItems,
   getSoonAgents,
 } from "./workspace.ts";
@@ -30,22 +27,12 @@ test("each agent chat has distinct copy and four suggestions", () => {
   assert.equal(new Set(configs.map((config) => config.headline)).size, 3);
   for (const config of configs) {
     assert.equal(config.suggestions.length, 4);
-    assert.equal(config.metrics.length, 3);
+    assert.equal(config.metrics.length, 0);
   }
 });
 
-test("dashboard, squad, and competitors mock data match the v1 workspace shape", () => {
-  assert.deepEqual(
-    getDashboardStats().map((stat) => stat.label),
-    [
-      "Leads this week",
-      "Drafts pending",
-      "Videos rendered",
-      "Revenue closed this month",
-    ],
-  );
-  assert.ok(getSquadMessages().some((message) => message.hitlCard?.status === "pending"));
-  assert.equal(getCompetitors().length, 4);
+test("workspace never exposes fabricated stats, messages, or competitors", () => {
+  assert.ok(getAgents().every(agent=>!agent.metricText));
 });
 
 test("workspace navigation follows the approved v1 information architecture", () => {
@@ -53,9 +40,9 @@ test("workspace navigation follows the approved v1 information architecture", ()
 
   assert.deepEqual(
     items.map((item) => item.label),
-    ["Dashboard", "Agents", "Squad chat", "Competitors", "Connect channels", "Virtual office", "Settings"],
+    ["Dashboard", "Agents", "Squad chat", "Products", "Connect channels", "Settings"],
   );
-  assert.equal(items.find((item) => item.id === "office")?.badge, "Soon");
+  assert.equal(items.some(item=>['office','competitors'].includes(item.id)), false);
   assert.equal(items.find((item) => item.id === "settings")?.placement, "footer");
   assert.equal(items.some((item) => item.label === "Strategy"), false);
   assert.equal(items.some((item) => item.label === "Co-Pilot chat"), false);

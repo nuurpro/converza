@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {createRequire,Module} from 'node:module';
-const require=createRequire(import.meta.url),ts=require('typescript');
-function load(relative,dependencies){const filename=fileURLToPath(new URL(relative,import.meta.url));const mod=new Module(filename);mod.filename=filename;mod.paths=Module._nodeModulePaths(fileURLToPath(new URL('.',import.meta.url)));const original=mod.require.bind(mod);mod.require=id=>id in dependencies?dependencies[id]:original(id);mod._compile(ts.transpileModule(readFileSync(filename,'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,filename);return mod.exports;}
+import {createRequire} from 'node:module';
+import loader from '../../tests/load.cjs';
+const require=createRequire(import.meta.url);
+function load(relative,dependencies){return loader(dependencies)(fileURLToPath(new URL(relative,import.meta.url)));}
 test('memory requests bind the selected organization before async authentication and support explicit owner context',async()=>{
  let org='old-org',release;
- const {memoryRequest}=load('../api/memory.ts',{'@/lib/api/session':{authHeaders:()=>new Promise(resolve=>{release=resolve;})},'@/lib/org':{getCurrentOrgId:()=>org}});
+ const {memoryRequest}=load('../api/memory.ts',{'@/lib/api/session':{authenticatedFetch:async(url,init)=>{await new Promise(resolve=>{release=resolve;});return fetch(url,init);}},'@/lib/org':{getCurrentOrgId:()=>org}});
  const originalFetch=globalThis.fetch,urls=[];
  globalThis.fetch=async url=>{urls.push(url);return new Response('{}',{status:200});};
  try{
@@ -33,7 +33,7 @@ test('unmounted Brand Passport editor ignores a delayed identity response',async
  assert.equal(calls[0][2],'old-org');assert.deepEqual(writes,[]);
 });
 test('Milo API exposes structured compliance evidence errors to the reviewer',async()=>{
- const {miloRequest}=load('../api/milo.ts',{'@/lib/api/session':{authHeaders:async()=>new Headers()},'@/lib/data/milo':{}});
+ const {miloRequest}=load('../api/milo.ts',{'@/lib/api/session':{authenticatedFetch:(...args)=>fetch(...args)},'@/lib/data/milo':{}});
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async()=>new Response(JSON.stringify({detail:{message:'Campaign needs revalidation or new evidence.',violations:['Current spec changed','Unsupported guarantee']}}),{status:409});
  try{await assert.rejects(miloRequest('org','/campaigns/c/script/approve'),/Current spec changed.*Unsupported guarantee/);}finally{globalThis.fetch=originalFetch;}

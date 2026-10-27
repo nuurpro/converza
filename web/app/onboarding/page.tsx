@@ -13,6 +13,7 @@ import {
   toneOptions,
 } from "@/lib/onboarding";
 import { markOnboardingComplete, saveOnboardingAnswers } from "@/lib/api/onboarding";
+import {getWorkspaceSession} from '@/lib/org';
 
 type QuestionKind = "text" | "select" | "number" | "multi" | "color";
 
@@ -56,20 +57,23 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
-    setAnswers(loadLocalAnswers());
+    let active=true;
 
     async function readUser() {
       const sessionUser = supabase ? (await supabase.auth.getUser()).data.user : null;
       const userId = sessionUser?.id || "";
+      if(!active)return;
       if (!userId) {
         router.replace("/landing");
         return;
       }
       window.localStorage.setItem(OWNER_USER_STORAGE_KEY, userId);
       setOwnerUserId(userId);
+      setAnswers(getWorkspaceSession().passport?.onboarding_answers ?? loadLocalAnswers(userId));
     }
 
     void readUser();
+    return()=>{active=false;};
   }, [router]);
 
   const visibleQuestions = useMemo(() => {
@@ -92,7 +96,7 @@ export default function OnboardingPage() {
       next.owner_name = nextValue.split(",")[0]?.trim() || nextValue.trim();
     }
     setAnswers(next);
-    saveLocalAnswers(next);
+    saveLocalAnswers(next,ownerUserId);
   }
 
   async function continueFlow() {

@@ -59,3 +59,6 @@ Vea/services/MoneyPrinterTurbo/test/services/test_vea_pipeline.py
 Vea/services/MoneyPrinterTurbo/test/services/test_vea_contract.py
 Vea/services/MoneyPrinterTurbo/test/services/test_vea_api.py
 Vea/services/MoneyPrinterTurbo/test/services/test_vea_evaluation.py
+Vea/services/MoneyPrinterTurbo/test/__init__.py
+Vea/services/MoneyPrinterTurbo/test/services/__init__.py
+Vea/services/MoneyPrinterTurbo/test/services/consolidated_renderer.py

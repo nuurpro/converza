@@ -1,10 +1,11 @@
 "use client";
 
 import Sidebar from "@/components/sidebar/Sidebar";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Menu } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { fetchOnboardingState } from "@/lib/api/onboarding";
+import { restoreWorkspaceSession } from "@/lib/api/session";
+import {getWorkspaceSession,resetWorkspaceSession,subscribeSession} from '@/lib/org';
 import { getDashboardGateDestination } from "@/lib/access";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -18,43 +19,24 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const [gateError, setGateError] = useState("");
   const pathname = usePathname();
   const router = useRouter();
+  const session=useSyncExternalStore(subscribeSession,getWorkspaceSession,getWorkspaceSession);
 
   const isPublicRoute = pathname?.startsWith("/landing") || pathname?.startsWith("/onboarding");
 
   useEffect(() => {
-    if (isPublicRoute) {
-      setGateState("allowed");
-      return;
-    }
-
     let cancelled = false;
-
+    let attempt = 0;
     async function checkAccess() {
+      const current=++attempt;
       setGateState("checking");
       setGateError("");
       try {
-        const supabase = getSupabaseBrowserClient();
-        const sessionUser = supabase ? (await supabase.auth.getUser()).data.user : null;
-        const ownerUserId = sessionUser?.id || null;
-
-        if (sessionUser?.id) {
-          const { OWNER_USER_STORAGE_KEY } = await import("@/lib/onboarding");
-          window.localStorage.setItem(OWNER_USER_STORAGE_KEY, sessionUser.id);
-        }
-
-        const passport = ownerUserId ? await fetchOnboardingState(ownerUserId) : null;
-        const destination = getDashboardGateDestination(ownerUserId, passport);
-        if (destination !== "allow") {
-          router.replace(destination);
-          if (!cancelled) setGateState("blocked");
-          return;
-        }
-
-        if (!cancelled) setGateState("allowed");
+        await restoreWorkspaceSession();
+        if (!cancelled && current===attempt) setGateState("allowed");
       } catch (error) {
-        if (!cancelled) {
+        if (!cancelled && current===attempt) {
           const message = error instanceof Error ? error.message : "Could not verify workspace access.";
-          if (message.includes("Onboarding database migration is pending")) {
+          if (message === 'Sign in required' || message === 'Invalid user session') {
             router.replace("/landing");
             setGateState("blocked");
             return;
@@ -66,18 +48,37 @@ export default function MainLayout({ children }: MainLayoutProps) {
     }
 
     void checkAccess();
+    const listener=getSupabaseBrowserClient()?.auth.onAuthStateChange((event,next)=>{
+      if(event==='SIGNED_OUT'){
+        attempt++;resetWorkspaceSession();setGateState('blocked');router.replace('/landing');
+      }else if(event==='SIGNED_IN'||event==='TOKEN_REFRESHED'||event==='INITIAL_SESSION'){
+        if(getWorkspaceSession().user?.id!==next?.user.id)resetWorkspaceSession();
+        // Supabase invokes listeners while holding its auth lock.
+        setTimeout(()=>{if(!cancelled)void checkAccess();},0);
+      }
+    });
 
     return () => {
       cancelled = true;
+      attempt++;listener?.data.subscription.unsubscribe();resetWorkspaceSession();
     };
-  }, [isPublicRoute, pathname, router]);
+  }, [router]);
+
+  useEffect(()=>{
+    if(!isPublicRoute && session.user){
+      const destination=getDashboardGateDestination(session.user.id,session.passport);
+      if(destination!=='allow')router.replace(destination);
+    }
+  },[isPublicRoute,pathname,session,router]);
 
   // Marketing and onboarding routes render without the dashboard shell.
-  if (isPublicRoute) {
+  if (pathname?.startsWith('/landing')) {
     return <>{children}</>;
   }
 
-  if (gateState === "checking") {
+  if(pathname?.startsWith('/onboarding')&&session.user)return <div key={session.user.id}>{children}</div>;
+
+  if (gateState === "checking" || (gateState==='allowed'&&!session.user)) {
     return (
       <div className="grid min-h-screen place-items-center bg-white font-workspace-sans text-[13px] text-text-muted">
         Checking workspace access...
@@ -85,7 +86,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     );
   }
 
-  if (gateState === "blocked") {
+  if (gateState === "blocked" || getDashboardGateDestination(session.user?.id??null,session.passport)!=='allow') {
     return (
       <div className="grid min-h-screen place-items-center bg-white px-4 font-workspace-sans text-text-secondary">
         {gateError ? (
@@ -98,7 +99,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
+    <div key={`${session.user?.id}:${session.orgId}:${session.generation}`} className="flex h-screen overflow-hidden bg-white">
       {/* Mobile hamburger */}
       <button
         onClick={() => setSidebarOpen(true)}

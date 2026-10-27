@@ -13,7 +13,6 @@ import {
 import type {
   ActivityFeedItem as ActivityFeedItemData,
   ChatMetric,
-  CompetitorData,
   DraftStatus,
   HitlCardData,
   SquadMessageData,
@@ -34,8 +33,8 @@ export function WorkspaceHeader({
   subtitle?: string;
 }) {
   return (
-    <header className="flex h-16 shrink-0 items-baseline gap-3 border-b border-border bg-white px-4 pl-14 pt-5 md:pl-8 md:px-10">
-      <h1 className="font-workspace-display text-[22px] font-extrabold tracking-[-0.02em] text-[#111111]">
+    <header className="flex min-h-16 shrink-0 flex-col justify-center gap-1 border-b border-border bg-white px-4 py-3 pl-14 md:flex-row md:items-baseline md:justify-start md:gap-3 md:px-10 md:pt-5">
+      <h1 className="min-w-0 break-words font-workspace-display text-[22px] font-extrabold tracking-normal text-[#111111]">
         {title}
       </h1>
       {subtitle && (
@@ -535,46 +534,6 @@ export function VeaPreview({artifact}:{artifact:VeaVideoArtifact}){
  return <div className="space-y-2"><p className="text-xs font-medium">{artifact.preset_used} · {artifact.duration_sec.toFixed(1)}s · Revision {artifact.variant_revision}</p>
   {url?<video controls playsInline preload="metadata" poster={safeVideoUrl(artifact.thumbnail_url)} src={url} className="max-h-[480px] w-full rounded-lg bg-black" aria-label="Rendered video preview"/>:<p role="alert" className="text-xs text-error">Video preview unavailable. Refresh to retrieve the media.</p>}
  </div>;
-}
-
-export function CompetitorRow({
-  competitor,
-  header = false,
-}: {
-  competitor?: CompetitorData;
-  header?: boolean;
-}) {
-  if (header) {
-    return (
-      <div className="grid grid-cols-[2fr_1fr_1fr_1.4fr] bg-[#f4f4f5] px-[18px] py-3 font-workspace-mono text-[10px] uppercase tracking-[0.05em] text-[#999999]">
-        <div>Name</div>
-        <div>Platform</div>
-        <div>Last checked</div>
-        <div>Notable change</div>
-      </div>
-    );
-  }
-
-  if (!competitor) return null;
-
-  const badgeClass = {
-    green: "bg-sleyz-dim text-sleyz",
-    amber: "bg-milo-dim text-milo",
-    gray: "bg-[#f4f4f5] text-[#666666]",
-  }[competitor.badgeTone];
-
-  return (
-    <div className="grid grid-cols-[2fr_1fr_1fr_1.4fr] items-center border-t border-[#e5e5e5] px-[18px] py-3.5 font-workspace-sans text-[13px] text-[#111111]">
-      <div className="font-medium">{competitor.name}</div>
-      <div>{competitor.platform}</div>
-      <div>{competitor.lastChecked}</div>
-      <div>
-        <span className={clsx("inline-flex w-fit rounded-full px-2.5 py-1 font-workspace-mono text-[9px]", badgeClass)}>
-          {competitor.badgeText}
-        </span>
-      </div>
-    </div>
-  );
 }
 
 export function AgentBackLink() {

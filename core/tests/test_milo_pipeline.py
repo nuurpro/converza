@@ -39,6 +39,13 @@ def artifact():
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_explicit_product_without_topic_never_selects_a_busier_product(self):
+        context = fixture()
+        context['objections'] += [
+            {**context['objections'][0], 'id': str(n), 'prospect_id': str(n), 'product_id': 'q'}
+            for n in range(3)]
+        self.assertEqual(prepare_evidence(context, product_id='p')['selected']['product_id'], 'p')
+
     def test_distinct_conversations_and_products_and_organizations(self):
         context = fixture()
         rows = context['objections']
@@ -98,6 +105,15 @@ class ComplianceTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_selected_scope_is_server_owned_not_model_metadata(self):
+        draft = artifact()
+        draft.update(product_id='invented', topic='price', selected_scope={'product_id': 'invented', 'topic': 'price'})
+        model = AsyncMock(side_effect=[draft, {'passed': True, 'violations': []}])
+        result = await generate_campaign(fixture(), model=model)
+        self.assertTrue(result['compliance']['passed'])
+        self.assertEqual(result.get('selected_scope'), {'product_id': 'p', 'topic': 'durability'})
+        self.assertNotIn('product_id', result['artifact'])
+
     async def test_explicit_provider_language_outage_is_actionable_without_fallback(self):
         from services.milo.errors import LanguageServiceUnavailable
         from services.milo.pipeline import _model

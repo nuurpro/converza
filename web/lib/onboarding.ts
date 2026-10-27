@@ -86,20 +86,20 @@ export function formatNumber(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
-export function loadLocalAnswers(): OnboardingAnswers {
-  if (typeof window === "undefined") return {};
+export function loadLocalAnswers(ownerId?: string | null): OnboardingAnswers {
+  if (typeof window === "undefined" || !ownerId) return {};
   try {
-    return JSON.parse(window.localStorage.getItem(ONBOARDING_STORAGE_KEY) || "{}");
+    return JSON.parse(window.localStorage.getItem(`${ONBOARDING_STORAGE_KEY}.${ownerId}`) || "{}");
   } catch {
     return {};
   }
 }
 
-export function saveLocalAnswers(answers: OnboardingAnswers) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(answers));
+export function saveLocalAnswers(answers: OnboardingAnswers, ownerId?: string | null) {
+  if (typeof window === "undefined" || !ownerId) return;
+  window.localStorage.setItem(`${ONBOARDING_STORAGE_KEY}.${ownerId}`, JSON.stringify(answers));
   if (answers.business_name?.trim()) {
-    window.localStorage.setItem(BRAND_NAME_STORAGE_KEY, answers.business_name.trim());
+    window.localStorage.setItem(`${BRAND_NAME_STORAGE_KEY}.${ownerId}`, answers.business_name.trim());
     window.dispatchEvent(new Event("converza:brand-name-updated"));
   }
 }

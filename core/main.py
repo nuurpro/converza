@@ -8,7 +8,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Qu
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from dotenv import load_dotenv
+from services.runtime import load_environment
 
 from db import get_supabase
 from lib.context_assembler import VALID_AGENTS
@@ -19,7 +19,7 @@ from lib.switchboard import (
     resolve_hitl,
 )
 
-load_dotenv()
+load_environment()
 
 class AgentMessageRequest(BaseModel):
     org_id: str

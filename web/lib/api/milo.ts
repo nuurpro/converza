@@ -1,8 +1,9 @@
-import {authHeaders} from '@/lib/api/session';
+import {authenticatedFetch} from '@/lib/api/session';
 import {scriptDecisionRequest,type MiloBrand,type MiloCampaign,type MiloJob,type MiloScene,type MiloSettings} from '@/lib/data/milo';
 export interface MiloSource {id:string;revision:number;kind:string;title:string;content:string;product_id?:string;}
 export async function miloRequest<T>(orgId:string,path:string,init?:RequestInit):Promise<T>{
- const response=await fetch(`/api/backend/api/milo/${encodeURIComponent(orgId)}${path}`,{...init,headers:await authHeaders({'Content-Type':'application/json',...(init?.headers??{})}),cache:'no-store'});
+ const headers=new Headers(init?.headers);headers.set('Content-Type','application/json');
+ const response=await authenticatedFetch(`/api/backend/api/milo/${encodeURIComponent(orgId)}${path}`,{...init,headers});
  const body=await response.json().catch(()=>null);
  if(!response.ok){
   const detail=body?.detail;

@@ -1,4 +1,4 @@
-import { authHeaders } from "@/lib/api/session";
+import { authenticatedFetch } from "@/lib/api/session";
 import { getCurrentOrgId } from "@/lib/org";
 
 export interface IdentityCore {
@@ -20,15 +20,15 @@ export interface KnowledgeRecord {
 export interface IndexJob { id: string; status: string; error?: string; last_error?: string; source_id: string; }
 
 export async function memoryRequest<T>(path: string, init?: RequestInit, orgId = getCurrentOrgId()): Promise<T> {
-  const headers = await authHeaders({"Content-Type":"application/json"});
-  const response = await fetch(`/api/backend/api/memory/${encodeURIComponent(orgId)}${path}`, {...init,headers,cache:"no-store"});
+  const headers = new Headers(init?.headers);headers.set('Content-Type','application/json');
+  const response = await authenticatedFetch(`/api/backend/api/memory/${encodeURIComponent(orgId)}${path}`, {...init,headers});
   const payload = await response.json().catch(()=>null);
   if (!response.ok) throw new Error(typeof payload?.detail === "string" ? payload.detail : `Request failed (${response.status})`);
   return payload as T;
 }
 
 export async function downloadIdentity(filename: string, orgId = getCurrentOrgId()) {
-  const response = await fetch(`/api/backend/api/memory/${encodeURIComponent(orgId)}/identity/export/${encodeURIComponent(filename)}`, {headers:await authHeaders()});
+  const response = await authenticatedFetch(`/api/backend/api/memory/${encodeURIComponent(orgId)}/identity/export/${encodeURIComponent(filename)}`);
   if (!response.ok) throw new Error("Identity export failed");
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");

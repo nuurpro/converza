@@ -29,6 +29,7 @@ class MiloPostgresTests(unittest.TestCase):
             if not q.fetchone()[0]:
                 q.execute((base / '007_sleyz_inbound.sql').read_text())
             q.execute((base / '008_milo_campaigns.sql').read_text())
+            q.execute((base / '010_consolidation.sql').read_text())
 
     def setUp(self):
         self.org = str(uuid.uuid4())
@@ -124,6 +125,7 @@ class MiloPostgresTests(unittest.TestCase):
                 q.execute("SELECT has_function_privilege(%s,'milo_store(text,jsonb)','EXECUTE')", (role,))
                 self.assertEqual(q.fetchone()[0], role == 'service_role')
             q.execute((Path(__file__).resolve().parents[1] / 'migrations/008_milo_campaigns.sql').read_text())
+            q.execute((Path(__file__).resolve().parents[1] / 'migrations/010_consolidation.sql').read_text())
         self.assertEqual(len(self.run_async(self.store.jobs(self.org))), 1)
 
     def test_daily_limit_and_manual_idempotency_conflict(self):

@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 import uuid
 
 import httpx
@@ -63,6 +64,24 @@ def _config(row, campaign, passport, reuse=None):
                 preset_version=(reuse or {}).get('preset',{}).get('version'),preset_sha256=(reuse or {}).get('preset_sha256'),
                 brand_snapshot={'revision':campaign['artifact']['brand_revision'],'hex_colors':palette}, product_id=campaign.get('product_id'),
                 clip_overrides=[{'segment_id':k,'asset_id':v} for k,v in sorted((row.get('clip_overrides') or {}).items())], reuse_manifest=deepcopy(reuse))
+
+
+def _relevant_replacement(asset, segment, campaign, language):
+    # Mirror the renderer's positive lexical-match gate, not its BM25 ranking.
+    def token(value):
+        value = unicodedata.normalize('NFKC', value).casefold()
+        for apostrophe in '\u2018\u2019\u02bb\u02bc`\u00b4':
+            value = value.replace(apostrophe, "'")
+        return ''.join(c for c in value if c.isalnum() or c == "'")
+
+    index = segment.get('scene_index')
+    scenes = campaign['artifact']['video_script']
+    if type(index) is not int or not 0 <= index < len(scenes):
+        return False
+    tags = asset.get('tags') or {}
+    query = {token(t) for t in scenes[index]['visual_broll_cues'].split()} - {''}
+    values = tags.get(language, []) + tags.get('und', [])
+    return bool(query & {token(t) for value in values for t in value.split()})
 
 
 class VeaStore:
@@ -211,6 +230,7 @@ class VeaStore:
                 row = self._row(org,id,expected_revision)
                 c = self._campaign(org,row['campaign_id'],row['approved_script_revision']+1)
                 product_id, language = c.get('product_id'), c['artifact'].get('language') or c.get('language') or 'en'
+                row, c = deepcopy(row), deepcopy(c)
         else:
             prior = await self._rpc('replay',org=org,key=key,request=req)
             if prior is not None: return _public(prior)
@@ -224,7 +244,8 @@ class VeaStore:
         catalog = await fetch_renderer('assets', {'org_id':org,'product_id':product_id,'language':language})
         replacement=next((a for a in catalog['assets'] if a.get('id',a.get('asset_id'))==asset_id),None)
         if (replacement is None or replacement.get('kind')!='video' or
-            replacement.get('duration_sec',0)*1000 < segment['end_ms']-segment['start_ms']):
+            replacement.get('duration_sec',0)*1000 < segment['end_ms']-segment['start_ms'] or
+            not _relevant_replacement(replacement, segment, c, language)):
             raise WorkflowConflict('Replacement clip is not currently eligible')
         if not self.memory:
             return _public(await self._rpc('swap',org=org,id=id,revision=expected_revision,segment_id=segment_id,asset_id=asset_id,key=key,request=req))

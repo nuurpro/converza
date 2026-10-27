@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -19,16 +19,25 @@ import { sendAgentMessage } from "@/lib/api/workspace";
 import { MiloCampaigns } from "@/components/workspace/MiloCampaigns";
 import { SleyzInbox } from "@/components/workspace/SleyzInbox";
 import { VeaVideos } from "@/components/workspace/VeaVideos";
+import {useMiloOrg} from '@/lib/hooks/useMiloOrg';
 
 function isAgentId(value: string): value is AgentId {
   return value === "milo" || value === "sleyz" || value === "vea";
 }
 
 export default function AgentChatPage() {
+  const org=useMiloOrg();return org?<AgentChat key={org} org={org}/>:<p className="p-5 text-sm">Sign in to chat with your agents.</p>;
+}
+function AgentChat({org}:{org:string}) {
   const params = useParams<{ agentId: string }>();
   const agentId = params.agentId;
+  return <AgentConversation key={agentId} org={org} agentId={agentId}/>;
+}
+function AgentConversation({org,agentId}:{org:string;agentId:string}){
   const [messages, setMessages] = useState<ChatBubbleMessage[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const alive=useRef(false),lock=useRef(false);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
 
   if (!isAgentId(agentId)) {
     return (
@@ -52,6 +61,7 @@ export default function AgentChatPage() {
   if (!agent) return null;
 
   async function sendMessage(text: string) {
+    if(lock.current)return;lock.current=true;
     const userMessage: ChatBubbleMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -61,7 +71,8 @@ export default function AgentChatPage() {
     setIsSending(true);
 
     try {
-      const result = await sendAgentMessage(activeAgentId, text);
+      const result = await sendAgentMessage(activeAgentId, text,org);
+      if(!alive.current)return;
       setMessages((current) => [
         ...current,
         {
@@ -73,6 +84,7 @@ export default function AgentChatPage() {
         },
       ]);
     } catch (error) {
+      if(!alive.current)return;
       const message = error instanceof Error ? error.message : "Agent request failed";
       setMessages((current) => [
         ...current,
@@ -83,7 +95,7 @@ export default function AgentChatPage() {
         },
       ]);
     } finally {
-      setIsSending(false);
+      lock.current=false;if(alive.current)setIsSending(false);
     }
   }
 

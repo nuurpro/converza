@@ -1,53 +1,5 @@
-services:
-  api:
-    build:
-      context: ..
-      dockerfile: core/Dockerfile
-    env_file: .env
-    ports:
-      - "127.0.0.1:8000:8000"
-    restart: unless-stopped
-  indexer:
-    build:
-      context: ..
-      dockerfile: core/Dockerfile
-    env_file: .env
-    command: ["python", "-m", "services.indexer"]
-    restart: unless-stopped
-  sleyz-ingress:
-    build:
-      context: ..
-      dockerfile: Sleyz/Dockerfile
-    env_file: .env
-    ports:
-      - "127.0.0.1:8001:8000"
-    restart: unless-stopped
-  sleyz-worker:
-    build:
-      context: ..
-      dockerfile: Sleyz/Dockerfile
-    env_file: .env
-    command: ["python", "-m", "services.sleyz"]
-    restart: unless-stopped
-  milo-worker:
-    build:
-      context: ..
-      dockerfile: core/Dockerfile
-    env_file: .env
-    environment:
-      MONEYPRINTERTURBO_BASE_URL: ${MONEYPRINTERTURBO_BASE_URL:-http://vea-renderer:8080}
-      MONEYPRINTERTURBO_PUBLIC_BASE_URL: ${MONEYPRINTERTURBO_PUBLIC_BASE_URL:-http://127.0.0.1:8080}
-    command: ["python", "-m", "services.milo"]
-    restart: unless-stopped
-  vea-renderer:
-    build:
-      context: ../Vea/services/MoneyPrinterTurbo
-      dockerfile: Dockerfile.milo
-    env_file: .env
-    ports:
-      - "127.0.0.1:8080:8080"
-    volumes:
-      - vea-task-storage:/MoneyPrinterTurbo/storage
-    restart: unless-stopped
-volumes:
-  vea-task-storage:
+# Compatibility entry point; all supported services are defined at the root.
+name: converza
+include:
+  - path: ../compose.yml
+    env_file: ../web/.env.local

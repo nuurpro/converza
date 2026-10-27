@@ -1,6 +1,6 @@
 import type { OnboardingAnswers } from "@/lib/onboarding";
-import { authHeaders } from "@/lib/api/session";
-import { getCurrentOrgId } from "@/lib/org";
+import { authenticatedFetch, restoreWorkspaceSession } from "@/lib/api/session";
+import {getWorkspaceSession,setWorkspaceSession} from '@/lib/org';
 
 export interface OnboardingPassport {
   id: string;
@@ -30,11 +30,8 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 async function apiJson<T>(path: string, init?: RequestInit) {
-  const headers = await authHeaders({
-    "Content-Type": "application/json",
-    ...(init?.headers ?? {}),
-  });
-  const response = await fetch(backendPath(path), {
+  const headers=new Headers(init?.headers);headers.set('Content-Type','application/json');
+  const response = await authenticatedFetch(backendPath(path), {
     ...init,
     headers,
   });
@@ -42,10 +39,15 @@ async function apiJson<T>(path: string, init?: RequestInit) {
 }
 
 export async function fetchOnboardingState(ownerUserId: string) {
-  const payload = await apiJson<{ passport: OnboardingPassport | null }>(
-    `/api/onboarding/state/${ownerUserId}`,
-  );
-  return payload.passport;
+  const session=await restoreWorkspaceSession();
+  if(session.user?.id!==ownerUserId)throw new Error('Workspace owner changed');
+  return session.passport;
+}
+
+function acceptPassport(passport:OnboardingPassport){
+  const user=getWorkspaceSession().user;
+  if(!user||user.id!==passport.owner_user_id)throw new Error('Workspace owner changed');
+  setWorkspaceSession(user,passport);return passport;
 }
 
 export async function saveOnboardingAnswers(ownerUserId: string, answers: OnboardingAnswers) {
@@ -53,11 +55,10 @@ export async function saveOnboardingAnswers(ownerUserId: string, answers: Onboar
     method: "POST",
     body: JSON.stringify({
       owner_user_id: ownerUserId,
-      org_id: getCurrentOrgId(ownerUserId),
       answers,
     }),
   });
-  return payload.passport;
+  return acceptPassport(payload.passport);
 }
 
 export async function markOnboardingComplete(ownerUserId: string) {
@@ -65,10 +66,9 @@ export async function markOnboardingComplete(ownerUserId: string) {
     method: "POST",
     body: JSON.stringify({
       owner_user_id: ownerUserId,
-      org_id: getCurrentOrgId(ownerUserId),
     }),
   });
-  return payload.passport;
+  return acceptPassport(payload.passport);
 }
 
 export async function completeStubPayment(ownerUserId: string) {
@@ -76,8 +76,7 @@ export async function completeStubPayment(ownerUserId: string) {
     method: "POST",
     body: JSON.stringify({
       owner_user_id: ownerUserId,
-      org_id: getCurrentOrgId(ownerUserId),
     }),
   });
-  return payload.passport;
+  return acceptPassport(payload.passport);
 }

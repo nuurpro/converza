@@ -6,10 +6,14 @@ import {useWorkspace} from "@/lib/hooks/useWorkspace";
 import {deliverBuyerReply,fetchSleyzConnections,mapSquadMessage,refreshBuyerDraft,resolveBuyerConversation,resolveHitlDraft,retryDraftGeneration,retryDraftLearning,simulateInboundDm,type SleyzConnectionStatus} from "@/lib/api/workspace";
 import type {DraftStatus} from "@/lib/data/workspace";
 import type {SleyzPlatform} from "@/lib/data/sleyz";
+import {useMiloOrg} from '@/lib/hooks/useMiloOrg';
 
 const input="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-xs";
 
 export function SleyzInbox() {
+  const org=useMiloOrg();return org?<Inbox key={org} org={org}/>:<p className="p-5 text-sm">Sign in to review buyer replies.</p>;
+}
+function Inbox({org}:{org:string}){
   const {drafts,error,setError}=useWorkspace();
   const [platform,setPlatform]=useState<SleyzPlatform>("telegram");
   const [customer,setCustomer]=useState("demo-buyer");
@@ -19,20 +23,22 @@ export function SleyzInbox() {
   const [connections,setConnections]=useState<SleyzConnectionStatus[]>([]);
   // Retain the key after an uncertain request; editing inputs starts a distinct simulation.
   const request=useRef<{payload:string;key:string}|null>(null);
-  useEffect(()=>{void fetchSleyzConnections().then(result=>setConnections(result.connections)).catch(()=>{});},[]);
+  const alive=useRef(false),lock=useRef(false);
+  useEffect(()=>{alive.current=true;void fetchSleyzConnections(org).then(result=>{if(alive.current)setConnections(result.connections);}).catch(()=>{});return()=>{alive.current=false;};},[org]);
   async function simulate(event:FormEvent) {
-    event.preventDefault();if(busy)return;setBusy(true);setError(null);setNotice("");
+    event.preventDefault();if(lock.current)return;lock.current=true;setBusy(true);setError(null);setNotice("");
     const payload=JSON.stringify({platform,customer,text});
     if(request.current?.payload!==payload)request.current={payload,key:crypto.randomUUID()};
     try {
-      const result=await simulateInboundDm({platform,customer_id:customer,customer_handle:customer,text},request.current!.key);
+      const result=await simulateInboundDm({platform,customer_id:customer,customer_handle:customer,text},request.current!.key,org);
+      if(!alive.current)return;
       setNotice(`${result.duplicate?"Existing":"New"} simulation queued. Draft ${result.draft_id} appears below when ready.`);
       request.current=null;
-    }catch(failure){setError(failure instanceof Error?failure.message:"Simulation failed");}
-    finally{setBusy(false);}
+    }catch(failure){if(alive.current)setError(failure instanceof Error?failure.message:"Simulation failed");}
+    finally{lock.current=false;if(alive.current)setBusy(false);}
   }
   async function act(id:string,action:"approve"|"reject"|"edit"|"deliver"|"resolve"|"retry"|"refresh"|"learn",content?:string) {
-    const draft=drafts[id];if(!draft||busy)return;setBusy(true);setError(null);
+    const draft=drafts[id];if(!draft||lock.current)return;lock.current=true;setBusy(true);setError(null);
     try {
       if(action==="deliver")await deliverBuyerReply(draft);
       else if(action==="resolve")await resolveBuyerConversation(draft);
@@ -40,8 +46,8 @@ export function SleyzInbox() {
       else if(action==="refresh")await refreshBuyerDraft(draft);
       else if(action==="learn")await retryDraftLearning(draft);
       else await resolveHitlDraft(id,action,content,draft.revision);
-    }catch(failure){setError(failure instanceof Error?failure.message:"Action failed");}
-    finally{setBusy(false);}
+    }catch(failure){if(alive.current)setError(failure instanceof Error?failure.message:"Action failed");}
+    finally{lock.current=false;if(alive.current)setBusy(false);}
   }
   function decide(id:string,status:DraftStatus,content?:string) {void act(id,status==="approved"?"approve":status==="rejected"?"reject":"edit",content);}
   const inbound=Object.values(drafts).filter(draft=>draft.agent_slug==="sleyz");

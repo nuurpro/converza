@@ -1,20 +1,5 @@
-services:
-  sales-bot:
-    build:
-      context: ..
-      dockerfile: Sleyz/Dockerfile
-    ports:
-      - "8001:8000"
-    environment:
-      - PYTHONUNBUFFERED=1
-    env_file:
-      - ../core/.env
-    restart: unless-stopped
-  sleyz-worker:
-    build:
-      context: ..
-      dockerfile: Sleyz/Dockerfile
-    command: ["python", "-m", "services.sleyz"]
-    env_file:
-      - ../core/.env
-    restart: unless-stopped
+# Compatibility entry point. Use sleyz-ingress and the opt-in workers profile.
+name: converza
+include:
+  - path: ../compose.yml
+    env_file: ../web/.env.local

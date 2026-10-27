@@ -64,6 +64,96 @@ def _timestamp(value: Any, fallback: datetime) -> datetime:
     return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
 
 
+def source_claim_spans(text: str) -> list[list[int]]:
+    """Conservative sentence/line units, computed before any budget or redaction."""
+    spans = []
+    start = 0
+    nonspace = re.compile(r'\S')
+    abbreviation = re.compile(r'\b(?:e\.g|i\.e|Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|Inc|Ltd|Co|approx|Dept)$|\b(?:[A-Za-z]\.)*[A-Z]$', re.I)
+    qualification = re.compile(
+        r'(?:except|unless|but|however|provided|only|not|excluding|ammo|faqat|agar|lekin|biroq|istisno|'
+        r'\u043a\u0440\u043e\u043c\u0435|\u043e\u0434\u043d\u0430\u043a\u043e|\u043d\u043e|'
+        r'\u0442\u043e\u043b\u044c\u043a\u043e|\u0435\u0441\u043b\u0438|\u0437\u0430 \u0438\u0441\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435\u043c)\b', re.I)
+    for boundary in re.finditer(r'[.!?]+(?=\s|$)|\n|$', text):
+        end = boundary.end()
+        fragment = text[start:boundary.start()].rstrip()
+        if boundary.group() in ('.', '\n') and abbreviation.search(fragment.rstrip('.')):
+            continue
+        next_start = nonspace.search(text, end)
+        following = text[next_start.start():next_start.start()+80] if next_start else ''
+        # Wrapped clauses and explicit qualifications belong to the preceding claim.
+        if following and (fragment.endswith((',', ':', ';'))
+                          or qualification.match(following)
+                          or following[0].islower()):
+            continue
+        left = start + len(text[start:end]) - len(text[start:end].lstrip())
+        right = end - len(text[start:end]) + len(text[start:end].rstrip())
+        if left < right:
+            spans.append([left, right])
+        start = end
+    return spans
+
+
+def _content_projection(text: str, redact) -> tuple[str, list[list[int]]]:
+    """Map unchanged complete claims to original offsets without exposing raw copies."""
+    parts, spans = [], []
+    position = 0
+    length = 0
+    for start, end in source_claim_spans(text):
+        gap = redact(text[position:start])
+        quote = text[start:end]
+        safe = redact(quote)
+        parts.extend((gap, safe))
+        length += len(gap)
+        if safe == quote:
+            spans.append([length, length + len(safe), start, end])
+        length += len(safe)
+        position = end
+    parts.append(redact(text[position:]))
+    return ''.join(parts), spans
+
+
+def _safe_metadata(metadata: dict) -> dict:
+    result = {}
+    if metadata.get('status') in ('PUBLISHED', 'DRAFT', 'FAILED'):
+        result['status'] = metadata['status']
+    for key in ('resolved_at', 'delivered_at'):
+        value = metadata.get(key)
+        if isinstance(value, str) and len(value) <= 64:
+            try:
+                result[key] = datetime.fromisoformat(value.replace('Z', '+00:00')).isoformat()
+            except ValueError:
+                pass
+    if metadata.get('origin') == 'passport':
+        result['origin'] = 'passport'
+    if metadata.get('source_field') in ('pricing', 'faq'):
+        result['source_field'] = metadata['source_field']
+    return result
+
+
+def _safe_atoms(atoms: list[dict]) -> list[dict]:
+    result = []
+    for atom in atoms:
+        safe = {}
+        for key in ('kind', 'text', 'answer', 'objection', 'source_id', 'timestamp', 'resolved_at'):
+            if isinstance(atom.get(key), str):
+                safe[key] = atom[key]
+        for key in ('span', 'answer_span', 'objection_span'):
+            span = atom.get(key)
+            if isinstance(span, (list, tuple)) and len(span) == 2 and all(type(n) is int for n in span):
+                safe[key] = list(span)
+        if type(atom.get('source_revision')) is int:
+            safe['source_revision'] = atom['source_revision']
+        if atom.get('quote_redacted'):
+            safe['quote_redacted'] = True
+        result.append(safe)
+    return result
+
+
+def _json_size(value) -> int:
+    return len(json.dumps(value, ensure_ascii=False, default=str))
+
+
 def rank_sources(rows: list[dict], query: str, *, org_id: str, limit: int = 8,
                  budget_chars: int = 12000, now: datetime | None = None) -> list[dict]:
     now = now or datetime.now(timezone.utc)
@@ -98,36 +188,61 @@ def rank_sources(rows: list[dict], query: str, *, org_id: str, limit: int = 8,
         ranked.append((adjusted, item))
     ranked.sort(key=lambda x: (-x[0], str(x[1].get('id'))))
     result = []
-    remaining = max(0, min(int(budget_chars), 100000))
+    budget = max(0, min(int(budget_chars), 100000))
     for score, item in ranked[:max(0, min(int(limit), 8))]:
-        if remaining < 4:
-            break
-        content = str(item.get('content') or '')[:remaining-2]
-        remaining -= len(content)
-        summary = str(item.get('summary') or '')[:max(0, remaining-2)]
-        remaining -= len(summary)
-        atoms = item.get('atoms') or []
-        if len(str(atoms)) > remaining:
-            atoms = []
-        remaining -= len(str(atoms))
-        result.append({'source_id': item['id'], 'kind': item['kind'], 'title': item.get('title', ''),
-                       'content': content, 'summary': summary, 'atoms': atoms,
-                       'revision': item['revision'], 'updated_at': item.get('updated_at'), 'score': score,
-                       'metadata': item.get('metadata') or {}})
+        content = str(item.get('content') or '')
+        spans = item.get('_citation_spans')
+        if spans is None:
+            spans = [[a, b, a, b] for a, b in source_claim_spans(content)]
+        title = str(item.get('title') or '')
+        projected = {'source_id': item['id'], 'kind': item['kind'],
+                     'title': title if len(title) <= 256 else '',
+                     'content': '', 'summary': '', 'atoms': [],
+                     'revision': item['revision'], 'updated_at': item.get('updated_at'), 'score': score,
+                     'metadata': _safe_metadata(item.get('metadata') or {}), 'citation_spans': []}
+        if _json_size(result + [projected]) > budget:
+            continue
+        # Find the longest whole-source prefix that fits, including provenance overhead.
+        ends = [0] + [b for _, b in source_claim_spans(content)]
+        lo, hi = 0, len(ends)
+        while lo + 1 < hi:
+            mid = (lo + hi) // 2
+            end = ends[mid]
+            candidate = dict(projected, content=content[:end],
+                             citation_spans=[span for span in spans if span[1] <= end])
+            if _json_size(result + [candidate]) <= budget:
+                lo = mid
+            else:
+                hi = mid
+        end = ends[lo]
+        projected.update(content=content[:end], citation_spans=[span for span in spans if span[1] <= end])
+        summary = str(item.get('summary') or '')
+        for _, end in source_claim_spans(summary):
+            candidate = dict(projected, summary=summary[:end])
+            if _json_size(result + [candidate]) > budget:
+                break
+            projected = candidate
+        atoms = _safe_atoms(item.get('atoms') or [])
+        candidate = dict(projected, atoms=atoms)
+        # Keep the whole array or none so atom indexes never change.
+        if _json_size(result + [candidate]) <= budget:
+            projected = candidate
+        result.append(projected)
     return result
 
 
 def redact_stale_prices(text: str, history: list[dict], products: list[dict]) -> str:
-    current = {(Decimal(str(p['price'])), str(p.get('currency', '')).upper()) for p in products if p.get('price') is not None}
+    current = {(str(p.get('id')), Decimal(str(p['price'])), str(p.get('currency', '')).upper())
+               for p in products if p.get('price') is not None and not p.get('deleted_at')}
     for price in history:
         value = Decimal(str(price['price']))
         currency = str(price.get('currency', '')).upper()
-        if (value, currency) in current:
+        if price.get('product_id') is not None and (str(price['product_id']), value, currency) in current:
             continue
         number = re.escape(format(value.normalize(), 'f')) + r'(?:\.0+)?'
         symbol = {'USD': r'\$', 'EUR': '€', 'GBP': '£'}.get(currency)
         # Also redact bare numbers from old quotations. Current catalog stays separate.
-        pattern = r'(?<![\d.])(?:' + (('(?:' + symbol + r'\s*)?') if symbol else '') + number + r'(?:\s*' + re.escape(currency) + r')?)(?![\d.])'
+        pattern = r'(?<![\d.])(?:' + (('(?:' + symbol + r'\s*)?') if symbol else '') + number + r'(?:\s*' + re.escape(currency) + r')?)(?!\d|\.\d)'
         text = re.sub(pattern, '[superseded price]', text, flags=re.IGNORECASE)
     return text
 
@@ -261,7 +376,7 @@ class MemoryStore:
         return bool(self.client.rpc('memory_forget_source', {'p_org': org_id, 'p_source': source_id}).execute().data)
 
     def search(self, org_id: str, query: str, limit: int = 8, budget_chars: int = 12000) -> list[dict]:
-        rows = self._rows('memory_sources', org_id)
+        rows = copy.deepcopy(self._rows('memory_sources', org_id))
         products = self.products(org_id)
         catalog = {str(product['id']): product for product in products}
         legacy_sources = any(row.get('metadata', {}).get('origin') == 'passport' for row in rows)
@@ -283,7 +398,11 @@ class MemoryStore:
                 except (ValueError, IndexError):
                     previous_value = None
                 # Current raw legacy prices/FAQs override pending or obsolete extraction.
-                row['content'] = field + '\n' + json.dumps(value, ensure_ascii=False, sort_keys=True)
+                refreshed = field + '\n' + json.dumps(value, ensure_ascii=False, sort_keys=True)
+                if refreshed != row.get('content'):
+                    # Live legacy replacement is useful context, not an exact revision quote.
+                    row['_citation_spans'] = []
+                row['content'] = refreshed
                 if field == 'pricing' or previous_value != value:
                     row['summary'], row['atoms'], row['indexed_revision'] = '', [], None
             if row['kind'] == 'product':
@@ -293,9 +412,14 @@ class MemoryStore:
                     continue
                 row['title'] = product['name']
                 row['content'] = f"{product['name']}\n{product.get('description') or ''}\nCurrent price: {product.get('price', 'not specified')} {product.get('currency', '')}"
+            elif metadata.get('origin') == 'passport' and metadata.get('source_field') == 'pricing':
+                # Rebuilt canonical pricing is current, unlike quoted historical prices.
+                pass
             else:
-                for key in ('content', 'summary'):
-                    row[key] = redact_stale_prices(str(row.get(key) or ''), history, current_price_terms)
+                redact = lambda text: redact_stale_prices(text, history, current_price_terms)
+                row['content'], spans = _content_projection(str(row.get('content') or ''), redact)
+                row['_citation_spans'] = row.get('_citation_spans', spans)
+                row['summary'] = redact(str(row.get('summary') or ''))
                 for atom in row.get('atoms') or []:
                     for key in ('text', 'objection', 'answer'):
                         if isinstance(atom.get(key), str):

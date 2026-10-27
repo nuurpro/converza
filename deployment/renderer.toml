@@ -1,0 +1,13 @@
+# Supported settings translated from the quiesced local renderer.
+# Provider credentials belong in core/.env, never this file.
+[app]
+max_concurrent_tasks = 5
+max_queued_tasks = 100
+edge_tts_timeout = 30
+tls_verify = true
+llm_provider = "disabled"
+enable_redis = false
+
+[ui]
+upload_post_enabled = false
+upload_post_auto_upload = false

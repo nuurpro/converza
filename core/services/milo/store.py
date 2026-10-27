@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from starlette.concurrency import run_in_threadpool
 from services.workflow.state import WorkflowConflict
+from .contracts import TOPICS
 
 
 DEFAULTS = dict(daily_enabled=True, spike_enabled=True, daily_hour=9, timezone='Asia/Tashkent',
@@ -214,14 +215,27 @@ class MiloStore:
         since = datetime.fromisoformat(since_iso.replace('Z', '+00:00'))
         return deepcopy([v for v in self.state['objections'].values() if v['org_id'] == org and datetime.fromisoformat(v['created_at'].replace('Z', '+00:00')) >= since])
 
-    async def complete_generation(self, job, artifact, compliance, missing_evidence=None):
+    async def complete_generation(self, job, artifact, compliance, missing_evidence=None, *, selected_scope=None):
+        if selected_scope is not None and (
+                not isinstance(selected_scope, dict) or set(selected_scope) != {'product_id', 'topic'} or
+                selected_scope['topic'] not in TOPICS or
+                (selected_scope['product_id'] is not None and
+                 (not isinstance(selected_scope['product_id'], str) or not selected_scope['product_id'].strip()))):
+            raise WorkflowConflict('Invalid generation scope')
         if not self.memory:
-            return await self._rpc('generated', job=job['id'], token=job['lease_token'], artifact=artifact, compliance=compliance, missing=missing_evidence or [])
+            return await self._rpc('generated', job=job['id'], token=job['lease_token'], artifact=artifact, compliance=compliance,
+                                   missing=missing_evidence or [], selected_scope=selected_scope)
         async with self.repo._lock:
             j = self._leased(job)
             if j['kind'] != 'generate':
                 raise WorkflowConflict('Wrong job kind')
             c = self.state['campaigns'][j['campaign_id']]
+            if selected_scope is not None:
+                if ((c.get('topic') is not None and
+                     (c['topic'], c.get('product_id')) != (selected_scope['topic'], selected_scope['product_id'])) or
+                    (c.get('product_id') is not None and c['product_id'] != selected_scope['product_id'])):
+                    raise WorkflowConflict('Generation scope differs from the reserved evidence')
+                c.update(deepcopy(selected_scope))
             c.update(artifact=deepcopy(artifact), compliance=deepcopy(compliance), missing_evidence=deepcopy(missing_evidence or []),
                      status='needs_evidence' if missing_evidence else ('awaiting_review' if compliance.get('passed') else 'blocked'), revision=c['revision']+1, updated_at=_now())
             self._done(j)

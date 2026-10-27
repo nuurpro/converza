@@ -1,11 +1,15 @@
 "use client";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { memoryRequest, type IndexJob, type KnowledgeRecord } from "@/lib/api/memory";
+import {useMiloOrg} from '@/lib/hooks/useMiloOrg';
 
 const input = "w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-primary";
 
 export default function MemoryPage() {
+  const org=useMiloOrg();return org?<Memory key={org} org={org}/>:<p className="p-5 text-sm">Sign in to manage agent memory.</p>;
+}
+function Memory({org}:{org:string}) {
   const [records,setRecords] = useState<KnowledgeRecord[]>([]);
   const [jobs,setJobs] = useState<IndexJob[]>([]);
   const [editing,setEditing] = useState<string|null>(null);
@@ -16,34 +20,38 @@ export default function MemoryPage() {
   const [searching,setSearching] = useState(false);
   const [busy,setBusy] = useState(false);
   const [message,setMessage] = useState("");
+  const alive=useRef(false),lock=useRef(false),sequence=useRef(0);
   const load = useCallback(async()=>{
+    if(!alive.current)return;const request=++sequence.current;
     const [knowledge,indexing] = await Promise.all([
-      memoryRequest<{knowledge:KnowledgeRecord[]}>("/knowledge"),
-      memoryRequest<{jobs:IndexJob[]}>("/jobs"),
+      memoryRequest<{knowledge:KnowledgeRecord[]}>("/knowledge",undefined,org),
+      memoryRequest<{jobs:IndexJob[]}>("/jobs",undefined,org),
     ]);
-    setRecords(knowledge.knowledge);setJobs(indexing.jobs);
+    if(!alive.current||request!==sequence.current)return;setRecords(knowledge.knowledge);setJobs(indexing.jobs);
     setSearching(false);
-  },[]);
-  useEffect(()=>{void load().catch(error=>setMessage(error.message));},[load]);
+  },[org]);
+  useEffect(()=>{alive.current=true;void load().catch(error=>{if(alive.current)setMessage(error.message);});return()=>{alive.current=false;sequence.current++;};},[load]);
   async function save(event:FormEvent) {
-    event.preventDefault();setBusy(true);setMessage("");
+    event.preventDefault();if(lock.current)return;lock.current=true;setBusy(true);setMessage("");
     try {
-      await memoryRequest(`/knowledge${editing?`/${editing}`:""}`,{method:editing?"PUT":"POST",body:JSON.stringify({kind,title,content})});
-      setEditing(null);setTitle("");setContent("");setQuery("");await load();setMessage("Saved. Search uses current text while indexing finishes.");
-    } catch(error){setMessage(error instanceof Error?error.message:"Save failed");} finally {setBusy(false);}
+      await memoryRequest(`/knowledge${editing?`/${editing}`:""}`,{method:editing?"PUT":"POST",body:JSON.stringify({kind,title,content})},org);
+      if(!alive.current)return;setEditing(null);setTitle("");setContent("");setQuery("");await load();if(alive.current)setMessage("Saved. Search uses current text while indexing finishes.");
+    } catch(error){if(alive.current)setMessage(error instanceof Error?error.message:"Save failed");} finally {lock.current=false;if(alive.current)setBusy(false);}
   }
   async function forget(record:KnowledgeRecord) {
-    try {await memoryRequest(record.source_id?`/sources/${record.source_id}`:`/knowledge/${record.id}`,{method:"DELETE"});await load();setMessage("Forgotten. This source is excluded from retrieval.");}
-    catch(error){setMessage(error instanceof Error?error.message:"Forget failed");}
+    if(lock.current)return;lock.current=true;
+    try {await memoryRequest(record.source_id?`/sources/${record.source_id}`:`/knowledge/${record.id}`,{method:"DELETE"},org);await load();if(alive.current)setMessage("Forgotten. This source is excluded from retrieval.");}
+    catch(error){if(alive.current)setMessage(error instanceof Error?error.message:"Forget failed");}finally{lock.current=false;}
   }
   async function search(event:FormEvent) {
     event.preventDefault();setMessage("");
     try {
       if(!query.trim()){await load();return;}
-      const result=await memoryRequest<{results:KnowledgeRecord[]}>(`/search?q=${encodeURIComponent(query)}`);
+      const request=++sequence.current;const result=await memoryRequest<{results:KnowledgeRecord[]}>(`/search?q=${encodeURIComponent(query)}`,undefined,org);
+      if(!alive.current||request!==sequence.current)return;
       setRecords(result.results.map(row=>({...row,id:row.id??row.source_id!})));
       setSearching(true);
-    }catch(error){setMessage(error instanceof Error?error.message:"Search failed");}
+    }catch(error){if(alive.current)setMessage(error instanceof Error?error.message:"Search failed");}
   }
   return <div className="space-y-8">
     <header><h2 className="text-[28px] font-medium tracking-tight text-text-primary">Agent memory</h2>
@@ -70,7 +78,7 @@ export default function MemoryPage() {
     </div>
     <section className="border-t border-border pt-5"><div className="flex items-center justify-between"><h3 className="font-medium">Background indexing</h3><button className="text-xs underline" onClick={()=>void load().catch(error=>setMessage(error.message))}>Refresh status</button></div>
       {jobs.length===0&&<p className="mt-2 text-sm text-text-muted">No indexing jobs.</p>}
-      {jobs.map(job=><div key={job.id} className="flex flex-wrap items-center gap-3 border-b border-border py-3 text-sm"><span>{job.source_id.slice(0,8)}</span><span>{job.status}</span>{(job.error||job.last_error)&&<span className="text-error">{job.error||job.last_error}</span>}{job.status==="failed"&&<button className="underline" onClick={()=>void memoryRequest(`/jobs/${job.id}/retry`,{method:"POST"}).then(load).catch(error=>setMessage(error.message))}>Retry indexing</button>}</div>)}
+      {jobs.map(job=><div key={job.id} className="flex flex-wrap items-center gap-3 border-b border-border py-3 text-sm"><span>{job.source_id.slice(0,8)}</span><span>{job.status}</span>{(job.error||job.last_error)&&<span className="text-error">{job.error||job.last_error}</span>}{job.status==="failed"&&<button className="underline" onClick={()=>void memoryRequest(`/jobs/${job.id}/retry`,{method:"POST"},org).then(load).catch(error=>{if(alive.current)setMessage(error.message);})}>Retry indexing</button>}</div>)}
     </section>
   </div>;
 }

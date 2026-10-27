@@ -1,28 +1,33 @@
 "use client";
-import {useCallback,useEffect,useState,type FormEvent} from "react";
+import {useCallback,useEffect,useRef,useState,type FormEvent} from "react";
 import Link from "next/link";
 import {memoryRequest,type ProductRecord} from "@/lib/api/memory";
 import {productCommerceFields} from "@/lib/data/sleyz";
+import {useMiloOrg} from '@/lib/hooks/useMiloOrg';
 
 const blank={name:"",description:"",price:"",currency:"USD",sku:"",stock_count:"",checkout_url_template:""};
 const input="mt-1 w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm";
 
 export default function ProductsPage(){
+  const org=useMiloOrg();return org?<Products key={org} org={org}/>:<p className="p-5 text-sm">Sign in to manage products.</p>;
+}
+function Products({org}:{org:string}){
   const [products,setProducts]=useState<ProductRecord[]>([]);
   const [form,setForm]=useState(blank);
   const [editing,setEditing]=useState<string|null>(null);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
-  const load=useCallback(async()=>{const data=await memoryRequest<{products:ProductRecord[]}>("/products");setProducts(data.products);},[]);
-  useEffect(()=>{void load().catch(error=>setMessage(error.message));},[load]);
-  async function save(event:FormEvent){event.preventDefault();setBusy(true);setMessage("");try{
+  const alive=useRef(false),lock=useRef(false),sequence=useRef(0);
+  const load=useCallback(async()=>{if(!alive.current)return;const request=++sequence.current;const data=await memoryRequest<{products:ProductRecord[]}>("/products",undefined,org);if(alive.current&&request===sequence.current)setProducts(data.products);},[org]);
+  useEffect(()=>{alive.current=true;void load().catch(error=>{if(alive.current)setMessage(error.message);});return()=>{alive.current=false;sequence.current++;};},[load]);
+  async function save(event:FormEvent){event.preventDefault();if(lock.current)return;lock.current=true;setBusy(true);setMessage("");try{
     const {sku,stock_count,checkout_url_template,...fields}=form;
     const commerce=productCommerceFields({sku,stock_count,checkout_url_template});
     const existing=products.find(row=>row.id===editing);
-    await memoryRequest(`/products${editing?`/${editing}`:""}`,{method:editing?"PUT":"POST",body:JSON.stringify({...fields,...commerce,metadata:{...existing?.metadata,sku:commerce.sku}})});
-    setForm(blank);setEditing(null);await load();setMessage("Saved. Agents can use the current price immediately.");
-  }catch(error){setMessage(error instanceof Error?error.message:"Save failed");}finally{setBusy(false);}}
-  async function remove(id:string){try{await memoryRequest(`/products/${id}`,{method:"DELETE"});await load();}catch(error){setMessage(error instanceof Error?error.message:"Delete failed");}}
+    await memoryRequest(`/products${editing?`/${editing}`:""}`,{method:editing?"PUT":"POST",body:JSON.stringify({...fields,...commerce,metadata:{...existing?.metadata,sku:commerce.sku}})},org);
+    if(!alive.current)return;setForm(blank);setEditing(null);await load();if(alive.current)setMessage("Saved. Agents can use the current price immediately.");
+  }catch(error){if(alive.current)setMessage(error instanceof Error?error.message:"Save failed");}finally{lock.current=false;if(alive.current)setBusy(false);}}
+  async function remove(id:string){if(lock.current)return;lock.current=true;try{await memoryRequest(`/products/${id}`,{method:"DELETE"},org);await load();}catch(error){if(alive.current)setMessage(error instanceof Error?error.message:"Delete failed");}finally{lock.current=false;}}
   return <main className="h-full overflow-y-auto p-6 md:p-10"><div className="mx-auto max-w-5xl space-y-7">
     <header><h1 className="text-3xl font-medium tracking-tight">Products & pricing</h1><p className="mt-2 text-sm text-text-secondary">The current catalog agents use in buyer replies and creative briefs.</p><Link href="/settings/memory" className="mt-2 inline-block text-sm underline">FAQs and agent memory</Link></header>
     {message&&<p role="status" className="rounded-lg border border-border p-3 text-sm">{message}</p>}

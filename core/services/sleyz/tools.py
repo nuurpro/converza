@@ -5,7 +5,7 @@ import re
 from string import Formatter
 from urllib.parse import quote, urlsplit
 
-from services.memory import tokenize
+from services.memory import source_claim_spans, tokenize
 
 
 def validate_checkout_template(template):
@@ -94,36 +94,60 @@ def validate_commerce_snapshot(artifact, products):
             raise ValueError('Checkout link no longer matches the verified catalog')
 
 
+def _source_claims(source):
+    content = source.get('content', '')
+    if 'citation_spans' not in source:
+        return [(span, content[span[0]:span[1]]) for span in source_claim_spans(content)]
+    # Retrieval maps displayed unchanged claims back to the exact canonical revision.
+    return [([start, end], content[left:right])
+            for left, right, start, end in source['citation_spans']
+            if 0 <= left < right <= len(content) and right - left == end - start]
+
+
+def citation_for_quote(source, quote):
+    if isinstance(quote, str) and quote:
+        for span, text in _source_claims(source):
+            if text == quote:
+                return {'source_id': source['source_id'], 'revision': source['revision'], 'span': span}
+    raise ValueError('Citation must preserve a complete source sentence or line')
+
+
+def _citation_claim(ref, source):
+    index, span = ref.get('atom_index'), ref.get('span')
+    if index is not None and span is not None:
+        raise ValueError('Citation must select one Atom or source span')
+    claims = _source_claims(source)
+    if span is not None:
+        if not isinstance(span, (list, tuple)) or len(span) != 2 or any(type(n) is not int for n in span):
+            raise ValueError('Citation span was not supplied')
+        for original, text in claims:
+            if list(span) == original:
+                return text
+    elif index is not None:
+        atoms = source.get('atoms') or []
+        if type(index) is not int or not 0 <= index < len(atoms):
+            raise ValueError('Citation Atom was not supplied')
+        atom = atoms[index]
+        if atom.get('quote_redacted') or atom.get('source_revision', source['revision']) != source['revision']:
+            raise ValueError('Citation Atom is redacted or obsolete')
+        text = atom.get('text') or atom.get('answer') or ''
+        original = atom.get('span') or atom.get('answer_span')
+        for claim_span, claim_text in claims:
+            if text == claim_text and (original is None or list(original) == claim_span):
+                return text
+    raise ValueError('Citation must preserve a complete source sentence or line')
+
+
 def validate_citations(citations, evidence):
     sources={row['source_id']:row for row in evidence}
     for ref in citations:
         source=sources.get(ref['source_id'])
         if not source or source.get('revision') != ref['revision']:
             raise ValueError('Citation source or revision was not supplied')
-        index=ref.get('atom_index')
-        span=ref.get('span')
-        if index is None and span is None:
-            raise ValueError('Citation requires an Atom or source span')
-        if index is not None and (type(index) is not int or not 0 <= index < len(source.get('atoms') or [])):
-            raise ValueError('Citation Atom was not supplied')
-        if span is not None and (len(span)!=2 or any(type(n) is not int for n in span) or not 0<=span[0]<span[1]<=len(source.get('content',''))):
-            raise ValueError('Citation span was not supplied')
-        if span is not None:
-            text=source['content'][span[0]:span[1]].strip()
-        else:
-            atom=source['atoms'][index]
-            text=(atom.get('text') or atom.get('answer') or '').strip()
-        # A true substring can still reverse a claim by dropping its negation.
-        complete_claims={match.group().strip() for match in re.finditer(r'[^.!?\n]+[.!?]?',source.get('content',''))}
-        if not text or text not in complete_claims:
-            raise ValueError('Citation must preserve a complete source sentence or line')
+        _citation_claim(ref, source)
     return citations
 
 
 def citation_text(ref, evidence):
     source=next(row for row in evidence if row['source_id']==ref['source_id'])
-    if ref.get('span') is not None:
-        start,end=ref['span']
-        return source['content'][start:end]
-    atom=source['atoms'][ref['atom_index']]
-    return atom.get('text') or atom.get('answer') or ''
+    return _citation_claim(ref, source)

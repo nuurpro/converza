@@ -8,7 +8,6 @@ from starlette.concurrency import run_in_threadpool
 
 VALID_AGENTS = {"milo", "sleyz", "vea"}
 WORKSPACE_DIR = Path(__file__).resolve().parents[2]
-IDENTITIES_DIR = WORKSPACE_DIR / "identities"
 
 
 def load_identity_file(agent_slug: str) -> str:
@@ -16,8 +15,6 @@ def load_identity_file(agent_slug: str) -> str:
         raise ValueError(f"Unknown agent_slug: {agent_slug}")
 
     path = WORKSPACE_DIR / {"milo": "Milo", "sleyz": "Sleyz", "vea": "Vea"}[agent_slug] / "identity.md"
-    if not path.is_file():
-        path = IDENTITIES_DIR / f"{agent_slug}.md"
     return path.read_text(encoding="utf-8")
 
 

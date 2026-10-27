@@ -5,8 +5,7 @@ import { memoryRequest, downloadIdentity, type IdentityCore } from "@/lib/api/me
 
 import { useMiloOrg } from "@/lib/hooks/useMiloOrg";
 import { MiloBrandConfig } from "@/components/workspace/MiloBrandConfig";
-
-const BRAND_NAME_STORAGE_KEY = "converza.brandName";
+import {getWorkspaceSession,setWorkspaceSession} from '@/lib/org';
 
 export default function BrandPage() {
   const org = useMiloOrg();
@@ -49,8 +48,8 @@ function BrandEditor({ org }: { org: string }) {
       const core=await memoryRequest<IdentityCore>("/identity",{method:"PUT",body:JSON.stringify({brand_name:brandName.trim(),voice_rules:voice,tone:voice,target_audience:audience,core_offer:promise,target_location:markets.join(", "),negative_constraints:negative,revision})},org);
       if (!mounted.current) return;
       setRevision(core.revision);setMessage("Saved. All agents use this identity on their next run.");
-      window.localStorage.setItem(BRAND_NAME_STORAGE_KEY, brandName.trim());
-      window.dispatchEvent(new Event("converza:brand-name-updated"));
+      const session=getWorkspaceSession();
+      if(session.user&&session.passport)setWorkspaceSession(session.user,{...session.passport,brand_name:brandName.trim()});
     }catch(error){if(mounted.current)setMessage(error instanceof Error?error.message:"Save failed");}finally{if(mounted.current)setBusy(false);}
   }
 

@@ -1,10 +1,8 @@
 """Active service entry point: uvicorn Sleyz.sales_main:app from repository root."""
-from pathlib import Path
-from dotenv import load_dotenv
+from services.runtime import load_environment
 from fastapi import FastAPI
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
-load_dotenv(Path(__file__).resolve().parents[1] / "core" / ".env")
+load_environment()
 
 from Sleyz.routers.webhook import router as webhook_router
 

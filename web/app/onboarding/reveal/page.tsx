@@ -19,6 +19,7 @@ export default function RevealPage() {
   const [analysis, setAnalysis] = useState<OnboardingAnalysis | null>(null);
 
   useEffect(() => {
+    let active=true;
     const supabase = getSupabaseBrowserClient();
     async function load() {
       const sessionUser = supabase ? (await supabase.auth.getUser()).data.user : null;
@@ -28,12 +29,14 @@ export default function RevealPage() {
         return;
       }
       const passport = await fetchOnboardingState(ownerUserId).catch(() => null);
-      const nextAnswers = passport?.onboarding_answers || loadLocalAnswers();
-      saveLocalAnswers(nextAnswers);
+      if(!active)return;
+      const nextAnswers = passport?.onboarding_answers || loadLocalAnswers(ownerUserId);
+      saveLocalAnswers(nextAnswers,ownerUserId);
       setAnswers(nextAnswers);
       setAnalysis(buildAnalysis(nextAnswers));
     }
     void load();
+    return()=>{active=false;};
   }, [router]);
 
   if (!analysis) {

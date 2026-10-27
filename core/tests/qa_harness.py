@@ -19,6 +19,9 @@ from pg_supabase import PgSupabase
 from psycopg2.extras import Json
 
 OWNER='11111111-1111-4111-8111-111111111111'
+OWNER_B='11111111-1111-4111-8111-111111111112'
+ORG_B='22222222-2222-4222-8222-222222222223'
+PASSPORT_B='33333333-3333-4333-8333-333333333334'
 ORG='22222222-2222-4222-8222-222222222222'
 PASSPORT='33333333-3333-4333-8333-333333333333'
 PROSPECT='44444444-4444-4444-8444-444444444444'
@@ -31,11 +34,13 @@ PUBLISHER='qa-loopback-publisher-key'
 USER={'id':OWNER,'aud':'authenticated','role':'authenticated','email':'owner@qa.invalid','email_confirmed_at':'2026-01-01T00:00:00Z','app_metadata':{'provider':'email','providers':['email']},'user_metadata':{},'created_at':'2026-01-01T00:00:00Z','updated_at':'2026-01-01T00:00:00Z'}
 
 
-def jwt():
+def jwt(owner=OWNER):
     encode=lambda value: base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip('=')
-    return encode({'alg':'HS256','typ':'JWT'})+'.'+encode({'sub':OWNER,'role':'authenticated','aud':'authenticated','exp':int(time.time())+86400,'iat':int(time.time()),'iss':'http://127.0.0.1:8019/auth/v1'})+'.qa-test-signature'
+    return encode({'alg':'HS256','typ':'JWT'})+'.'+encode({'sub':owner,'role':'authenticated','aud':'authenticated','exp':int(time.time())+86400,'iat':int(time.time()),'iss':'http://127.0.0.1:8019/auth/v1'})+'.qa-test-signature'
 
 TOKEN=os.environ.get('QA_SESSION_TOKEN') or jwt()
+TOKEN_B=jwt(OWNER_B)
+USER_B={**USER,'id':OWNER_B,'email':'second-owner@qa.invalid'}
 
 
 def validate_qa_dsn(dsn):
@@ -70,6 +75,7 @@ def bootstrap(dsn):
         with c.cursor() as q:
             q.execute('CREATE SCHEMA IF NOT EXISTS auth; CREATE TABLE IF NOT EXISTS auth.users(id uuid PRIMARY KEY)')
             q.execute('INSERT INTO auth.users(id) VALUES(%s) ON CONFLICT DO NOTHING',(OWNER,))
+            q.execute('INSERT INTO auth.users(id) VALUES(%s) ON CONFLICT DO NOTHING',(OWNER_B,))
             q.execute((CORE/'migrations/002_service_role_switchboard_policies.sql').read_text())
             q.execute((CORE/'migrations/003_onboarding_paywall.sql').read_text())
             q.execute('''CREATE TABLE IF NOT EXISTS tg_connections(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -84,6 +90,8 @@ def bootstrap(dsn):
               ADD COLUMN IF NOT EXISTS target_audience text,ADD COLUMN IF NOT EXISTS target_location text,
               ADD COLUMN IF NOT EXISTS hex_colors text[];''')
             q.execute('INSERT INTO orgs(id) VALUES(%s) ON CONFLICT DO NOTHING',(ORG,))
+            q.execute('INSERT INTO orgs(id) VALUES(%s) ON CONFLICT DO NOTHING',(ORG_B,))
+            q.execute("INSERT INTO brand_passports(id,org_id,owner_user_id,brand_name,onboarding_completed_at,paywall_status) VALUES(%s,%s,%s,'Festival Studio',now(),'paid') ON CONFLICT DO NOTHING",(PASSPORT_B,ORG_B,OWNER_B))
             q.execute("INSERT INTO brand_passports(id,org_id,owner_user_id,brand_name,tone,core_offer,target_audience,target_location,onboarding_completed_at,paywall_status,voice_rules,negative_constraints) VALUES(%s,%s,%s,'Nova Training','Warm and direct','Practical founder training','Early-stage founders','Tashkent',now(),'paid',%s,%s) ON CONFLICT DO NOTHING",(PASSPORT,ORG,OWNER,Json(['Use clear examples']),Json(['No guaranteed revenue claims'])))
             q.execute('INSERT INTO prospects(id,org_id) VALUES(%s,%s) ON CONFLICT DO NOTHING',(PROSPECT,ORG))
             q.execute("INSERT INTO brand_products(id,org_id,name,description,price,currency,sku,stock_count,checkout_url_template) VALUES(%s,%s,'Founder course','Live training with two coaching sessions',100,'USD','founder-course',3,'https://merchant.example/checkout?sku={sku}&quantity={quantity}') ON CONFLICT DO NOTHING",(PRODUCT,ORG))
@@ -101,7 +109,7 @@ def create_app():
     dsn=os.environ.get('TEST_DSN','')
     if not dsn: raise RuntimeError('Set TEST_DSN to an isolated test_converza PostgreSQL database')
     client=bootstrap(dsn)
-    client.auth=SimpleNamespace(get_user=lambda token: SimpleNamespace(user=SimpleNamespace(id=OWNER)) if token==TOKEN else (_ for _ in ()).throw(ValueError('Invalid QA session')))
+    client.auth=SimpleNamespace(get_user=lambda token: SimpleNamespace(user=SimpleNamespace(id=OWNER if token==TOKEN else OWNER_B)) if token in (TOKEN,TOKEN_B) else (_ for _ in ()).throw(ValueError('Invalid QA session')))
     os.environ['BACKEND_API_KEY']=KEY; os.environ['PUBLISHER_API_KEY']=PUBLISHER; os.environ['DEFAULT_ORG_ID']=ORG
     import db
     db._client=client
@@ -114,8 +122,7 @@ def create_app():
         products=MemoryStore(client).products(ORG)
         price=f"{products[0]['price']} {products[0]['currency']}" if products else 'not currently listed'
         return f'Nova Training founder course price is {price} and includes two coaching sessions. Which goal should we focus on?'
-    async def render(*args,**kwargs): return {'video_url':'https://example.invalid/qa-preview.mp4'}
-    board.complete_json=classify; board.call_engine=engine; board.call_moneyprinterturbo=render
+    board.complete_json=classify; board.call_engine=engine
     # QA-only semantic review: real route validation/storage still run unchanged.
     import services.milo.routes as milo_routes
     async def qa_review(artifact,context,**kwargs):
@@ -128,16 +135,18 @@ def create_app():
     from fastapi import Header, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
     app.add_middleware(CORSMiddleware,allow_origins=['http://127.0.0.1:3000','http://localhost:3000','http://127.0.0.1:3029','http://localhost:3029'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
-    def session(): return {'access_token':TOKEN,'token_type':'bearer','expires_in':86400,'expires_at':int(time.time())+86400,'refresh_token':'qa-local-refresh','user':USER}
+    def session(second=False): return {'access_token':TOKEN_B if second else TOKEN,'token_type':'bearer','expires_in':86400,'expires_at':int(time.time())+86400,'refresh_token':'qa-local-refresh','user':USER_B if second else USER}
     @app.get('/auth/v1/user')
     async def user(authorization:str|None=Header(None)):
-        if authorization!='Bearer '+TOKEN: raise HTTPException(401,'Invalid QA session')
-        return USER
+        if authorization not in ('Bearer '+TOKEN,'Bearer '+TOKEN_B): raise HTTPException(401,'Invalid QA session')
+        return USER if authorization=='Bearer '+TOKEN else USER_B
     @app.post('/auth/v1/token')
     async def token(): return session()
     @app.get('/qa/session')
-    async def qa_session():
-        return {'session':session(),'storage':{'sb-127-auth-token':json.dumps(session()),'converza.ownerUserId':OWNER,'converza.orgId.'+OWNER:ORG,'converza.brandName':'Nova Training'},'org_id':ORG,'drafts':{'sleyz':SLEYZ,'milo':MILO},'backend_key':KEY,'publisher_key':PUBLISHER}
+    async def qa_session(account: str='first'):
+        second=account=='second'
+        return {'session':session(second),'org_id':ORG_B if second else ORG,
+                'drafts':{} if second else {'sleyz':SLEYZ,'milo':MILO}}
     @app.post('/qa/publish/{draft_id}')
     async def qa_publish(draft_id:str):
         draft=client.table('drafts').select('*').eq('id',draft_id).eq('org_id',ORG).single().execute().data
@@ -208,10 +217,7 @@ def create_app():
         return {'processed':await worker.run_once('generate')}
     @app.post('/qa/milo-build')
     async def qa_milo_build():
-        from services.milo.worker import MiloWorker
-        from lib.repository import SupabaseRepository
-        async def renderer(job,store): return {'video_url':'https://example.invalid/qa-milo.mp4','task_id':'qa-video-task','video_script':job['payload']['video_script']}
-        return {'processed':await MiloWorker(SupabaseRepository(client),renderer=renderer).run_once('build')}
+        raise HTTPException(501, 'Use the isolated real-media journey test; no synthetic video receipts are accepted here')
     return app
 
 

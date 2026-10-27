@@ -1,5 +1,5 @@
 # Optional deterministic-production mounts. Paths must be provisioned before startup.
-# docker compose -f compose.memory.yml -f compose.vea.yml up -d --build api milo-worker vea-renderer
+# From root: docker compose --env-file web/.env.local -f compose.yml -f core/compose.vea.yml --profile workers up -d --build
 services:
   vea-renderer:
     volumes:

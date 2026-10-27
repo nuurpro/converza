@@ -4,7 +4,7 @@ import re
 
 from services.llm import complete_json
 from .contracts import Classification, ReplySelection, SleyzDraftArtifact, intent_for_score
-from .tools import SalesTools, citation_text, snapshot_product, validate_citations
+from .tools import SalesTools, citation_for_quote, citation_text, snapshot_product, validate_citations
 
 
 COPY = {
@@ -120,10 +120,9 @@ async def generate_artifact(envelope, context, *, model=None, classification=Non
                 continue
             quoted=ref.pop('quote')
             source=sources.get(ref.get('source_id'))
-            start=source['content'].find(quoted) if source and isinstance(quoted,str) and quoted else -1
-            if start<0:
+            if source is None:
                 raise ValueError('Selected quote was not in the supplied source')
-            ref['span']=[start,start+len(quoted)]
+            ref['span']=citation_for_quote(source, quoted)['span']
     selection=selected if isinstance(selected,ReplySelection) else ReplySelection.model_validate(selected)
     citations=[ref.model_dump(mode='json',exclude_none=True) for ref in selection.citations]
     validate_citations(citations,evidence)
@@ -135,6 +134,7 @@ async def generate_artifact(envelope, context, *, model=None, classification=Non
         quoted.append(value)
     language=COPY[classification.language]
     parts=[]
+    optional=[]
     acknowledgement='concern' if classification.objections else selection.acknowledgement
     if acknowledgement!='none':
         parts.append(language[acknowledgement])
@@ -154,6 +154,9 @@ async def generate_artifact(envelope, context, *, model=None, classification=Non
         # Description is authoritative current catalog copy, never model-generated.
         if selection.include_description and product.get('description'):
             parts.append(product['description'])
+            optional.append(len(parts)-1)
+    quote_parts={len(parts)+i: ref for i, ref in enumerate(citations)}
+    optional.extend(quote_parts)
     parts.extend(quoted)
     if len(products)!=1:
         parts.append(language['clarify_product'])
@@ -163,14 +166,31 @@ async def generate_artifact(envelope, context, *, model=None, classification=Non
         next_step=selection.next_step if selection.next_step not in ('buy','none') else 'needs'
         parts.append(language[next_step])
     from .learning import SAFE_RULES
-    applied=[row for row in corrections if selection.apply_corrections and row.get('content') in SAFE_RULES]
-    applied_rules={row['content'] for row in applied}
-    if 'Keep replies concise.' in applied_rules:
-        # Commercial fields remain whole; long optional prose is omitted, never truncated.
-        parts=[part for part in parts if len(part.split())<=30 or part.endswith(checkout or '\0')]
-    separator='\n\n' if 'Use short paragraphs.' in applied_rules else ' '
-    if 'Use bullet points for multiple benefits.' in applied_rules and len(quoted)>1:
-        parts=[part if part not in quoted else '\n• '+part for part in parts]
+    eligible=[row for row in corrections if selection.apply_corrections and row.get('content') in SAFE_RULES]
+    applied=[]
+    removed=set()
+    separator=' '
+    # Cite only deterministic transformations that actually changed this reply.
+    for source in eligible:
+        rule=source['content']
+        if rule=='Keep replies concise.':
+            omit={index for index in optional if len(parts[index].split())>30} - removed
+            if omit:
+                removed.update(omit)
+                applied.append(source)
+    for source in eligible:
+        if source['content']=='Use short paragraphs.' and len(parts)-len(removed)>1 and separator!='\n\n':
+            separator='\n\n'
+            applied.append(source)
+    retained_quotes=set(quote_parts)-removed
+    for source in eligible:
+        if source['content']=='Use bullet points for multiple benefits.' and len(retained_quotes)>1:
+            for index in retained_quotes:
+                parts[index]='\n• '+parts[index]
+            applied.append(source)
+            break
+    citations=[ref for index, ref in quote_parts.items() if index not in removed]
+    parts=[part for index, part in enumerate(parts) if index not in removed]
     reply=separator.join(parts).strip()
     for source in applied:
         citations.append({'source_id':source['source_id'],'revision':source['revision'],'span':[0,len(source['content'])]})

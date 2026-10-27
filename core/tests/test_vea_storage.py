@@ -64,7 +64,7 @@ class VeaStorageTests(unittest.IsolatedAsyncioTestCase):
         binding=build_binding(self.milo.state['jobs'][row['job_id']])
         preset={'id':row['preset_id'],'version':1}
         preset_sha=hashlib.sha256(json.dumps(preset,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
-        manifest={'segments':[{'segment_id':'scene-0-cut-0','asset_id':'a','start_ms':0,'end_ms':3000}],
+        manifest={'segments':[{'segment_id':'scene-0-cut-0','asset_id':'a','start_ms':0,'end_ms':3000,'scene_index':0}],
                   'preset':preset,'preset_sha256':preset_sha,'duration_ms':3000,
                   'org_id':'org','script_sha256':binding['script_sha256'],'vea_config_sha256':binding['vea_config_sha256'],'private':'path'}
         sha=hashlib.sha256(json.dumps(manifest,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
@@ -100,7 +100,7 @@ class VeaStorageTests(unittest.IsolatedAsyncioTestCase):
         from services.vea.store import VeaStore, validate_review
         row = await self.completed_default()
         old_draft = await self.repo.get_draft(row['draft_id'])
-        with patch('services.vea.store.fetch_renderer', AsyncMock(return_value={'assets':[{'id':'replacement','kind':'video','duration_sec':3}]})):
+        with patch('services.vea.store.fetch_renderer', AsyncMock(return_value={'assets':[{'id':'replacement','kind':'video','duration_sec':3,'tags':{'en':['Product']}}]})):
             new = await VeaStore(self.repo).swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'swap')
             replay = await VeaStore(self.repo).swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'swap')
         self.assertEqual(new, replay)
@@ -145,7 +145,7 @@ class VeaStorageTests(unittest.IsolatedAsyncioTestCase):
         row=await self.completed_default()
         draft=await self.repo.get_draft(row['draft_id'])
         await self.repo.transition_draft('org',draft['id'],'approve',draft['revision'],'approved-export')
-        with patch('services.vea.store.fetch_renderer',AsyncMock(return_value={'assets':[{'id':'replacement','kind':'video','duration_sec':3}]})):
+        with patch('services.vea.store.fetch_renderer',AsyncMock(return_value={'assets':[{'id':'replacement','kind':'video','duration_sec':3,'tags':{'en':['Product']}}]})):
             await VeaStore(self.repo).swap('org',row['id'],1,'scene-0-cut-0','replacement','swap')
         draft=await self.repo.get_draft(draft['id'])
         self.assertEqual(draft['status'],'REJECTED')

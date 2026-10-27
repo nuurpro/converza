@@ -11,6 +11,7 @@
 node_modules/
 .next/
 .next-qa/
+.next*/
 next-env.d.ts
 *.tsbuildinfo
 __pycache__/
@@ -27,3 +28,5 @@ htmlcov/
 _archive/
 .DS_Store
 Thumbs.db
+runtime/
+reports/local/

@@ -10,7 +10,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
     async def test_vea_internal_recommendation_does_not_render_or_create_draft(self):
         from lib.switchboard import run_agent
         repo=InMemoryRepository()
-        with patch('lib.switchboard.classify_output',AsyncMock(return_value='internal_recommendation')), patch('lib.switchboard.call_engine',AsyncMock(return_value='Use shorter scenes for retention.')), patch('lib.switchboard.call_moneyprinterturbo',AsyncMock(return_value={'video_url':'https://example.invalid/unused.mp4'})) as render:
+        with patch('lib.switchboard.classify_output',AsyncMock(return_value='internal_recommendation')), patch('lib.switchboard.call_engine',AsyncMock(return_value='Use shorter scenes for retention.')), patch('services.milo.video.render_approved_script', AsyncMock()) as render:
             result=await run_agent(org_id='a',agent_slug='vea',text='Analyze the scene pacing for the owner. Do not render a video.',triggered_by='owner',repo=repo)
         render.assert_not_awaited()
         self.assertEqual(repo.drafts,[])

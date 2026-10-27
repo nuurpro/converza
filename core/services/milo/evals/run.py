@@ -23,6 +23,7 @@ async def run(live=False):
         try:
             result=await generate_campaign(context(),language=language,model=None if live else fixture_model)
             value=result['artifact']
+            safety.append({'id':'selected_scope_'+language,'passed':result.get('selected_scope')=={'product_id':'bag','topic':'durability'}})
             ok=bool(value and result['compliance']['passed'] and value['language']==language)
             quality.append({'id':'campaign_'+language,'passed':ok,
                             **({'violations':result['compliance']['violations']} if not ok else {})})

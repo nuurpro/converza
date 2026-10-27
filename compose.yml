@@ -1,0 +1,84 @@
+name: converza
+
+x-core: &core
+  build:
+    context: .
+    dockerfile: core/Dockerfile
+  env_file: core/.env
+  environment: &renderer-endpoints
+    MONEYPRINTERTURBO_BASE_URL: http://vea-renderer:8080
+    MONEYPRINTERTURBO_PUBLIC_BASE_URL: http://127.0.0.1:8080
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *core
+    ports: ["127.0.0.1:8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  indexer:
+    <<: *core
+    command: ["python", "-m", "services.indexer"]
+    profiles: [workers]
+  sleyz-worker:
+    <<: *core
+    build:
+      context: .
+      dockerfile: Sleyz/Dockerfile
+    command: ["python", "-m", "services.sleyz"]
+    profiles: [workers]
+  milo-worker:
+    <<: *core
+    command: ["python", "-m", "services.milo"]
+    profiles: [workers]
+  sleyz-ingress:
+    build:
+      context: .
+      dockerfile: Sleyz/Dockerfile
+    env_file: core/.env
+    ports: ["127.0.0.1:8001:8000"]
+    restart: unless-stopped
+  telegram-manager:
+    build:
+      context: .
+      dockerfile: deployment/manager.Dockerfile
+    env_file: core/.env
+    ports: ["127.0.0.1:8002:8000"]
+    restart: unless-stopped
+  vea-renderer:
+    build:
+      context: Vea/services/MoneyPrinterTurbo
+      dockerfile: Dockerfile.milo
+    image: converza/approved-renderer:consolidation
+    env_file: core/.env
+    environment:
+      MPT_APPROVED_ONLY: "1"
+    ports: ["127.0.0.1:8080:8080"]
+    volumes:
+      - vea-storage:/MoneyPrinterTurbo/storage
+      - ./deployment/renderer.toml:/MoneyPrinterTurbo/config.toml:ro
+    restart: unless-stopped
+  web:
+    build:
+      context: ./web
+      dockerfile: ../deployment/web.Dockerfile
+      args:
+        BACKEND_URL: http://api:8000
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?Set NEXT_PUBLIC_SUPABASE_URL in Web/.env.local}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?Set NEXT_PUBLIC_SUPABASE_ANON_KEY in Web/.env.local}
+    env_file: Web/.env.local
+    environment:
+      BACKEND_URL: http://api:8000
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  vea-storage:
+    name: converza-vea-storage
+    external: true

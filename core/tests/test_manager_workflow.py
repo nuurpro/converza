@@ -14,6 +14,20 @@ def load_file(name, relative):
 
 
 class TelegramOwnershipTests(unittest.IsolatedAsyncioTestCase):
+    async def test_webhook_requires_secret_before_reading_or_scheduling_update(self):
+        import os
+        from fastapi import BackgroundTasks, HTTPException
+        module = self.load_callback()
+        request = SimpleNamespace(headers={}, json=AsyncMock(return_value={}))
+        tasks = BackgroundTasks()
+        with patch.dict(os.environ, {'MANAGER_WEBHOOK_SECRET': 'private-fixture'}):
+            with self.assertRaises(HTTPException) as error:
+                await module.webhook(request, tasks)
+            self.assertEqual(error.exception.status_code, 403)
+            request.json.assert_not_awaited()
+            request.headers['x-telegram-bot-api-secret-token'] = 'private-fixture'
+            self.assertEqual(await module.webhook(request, tasks), {'ok': True})
+
     def load_callback(self):
         db = ModuleType('db.client')
         self.sb = MagicMock()

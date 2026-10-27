@@ -4,6 +4,9 @@ Supabase client — single async-compatible instance for the entire app.
 
 import os
 from supabase import create_client, Client
+from services.runtime import load_environment
+
+load_environment()
 
 _client: Client | None = None
 

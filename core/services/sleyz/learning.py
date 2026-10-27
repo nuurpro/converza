@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import Field, StrictInt
 
 from services.llm import complete_json
+from services.memory import source_claim_spans
 from .contracts import Contract
 
 
@@ -48,11 +49,15 @@ async def analyze_edit(job, *, model=None):
     final=job.get('final') or job.get('final_content') or (job.get('snapshot') or {}).get('final_content') or ''
     if original.strip()==final.strip() or not final.strip():
         return None
-    changes=[{'old':original[a:b],'new':final[c:d],'start':c,'end':d}
+    changes=[{'old':original[a:b],'new':final[c:d],'old_start':a,'old_end':b,'start':c,'end':d}
              for op,a,b,c,d in SequenceMatcher(None,original,final,autojunk=False).get_opcodes() if op!='equal']
     # A commercial change is canonical policy work, even if a model labels it tone.
-    if any(COMMERCIAL_RULE.search(change['new']) for change in changes):
-        return None
+    # Keep commercial qualifications atomic; diffs may leave the keyword unchanged.
+    for text, start_key, end_key in ((original, 'old_start', 'old_end'), (final, 'start', 'end')):
+        for start, end in source_claim_spans(text):
+            if COMMERCIAL_RULE.search(text[start:end]) and any(
+                    change[start_key] < end and change[end_key] > start for change in changes):
+                return None
     model=model or complete_json
     schema=CorrectionCandidate.model_json_schema()
     for key in ('start','end'):
@@ -74,6 +79,11 @@ async def analyze_edit(job, *, model=None):
             start=final.find(quoted) if isinstance(quoted,str) and quoted else -1
             if start<0:
                 raise ValueError('Correction supporting span is not an exact approved quote')
+            while start >= 0 and not any(start < change['end'] and start + len(quoted) > change['start']
+                                         for change in changes):
+                start=final.find(quoted,start+1)
+            if start < 0:
+                raise ValueError('Correction support does not overlap the approved edit')
             span.update(start=start,end=start+len(quoted))
     candidate=result if isinstance(result,CorrectionCandidate) else CorrectionCandidate.model_validate(result)
     if candidate.scope!='general' or not candidate.rule.strip() or COMMERCIAL_RULE.search(candidate.rule):

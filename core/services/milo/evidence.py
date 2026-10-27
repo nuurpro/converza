@@ -56,6 +56,8 @@ def prepare_evidence(context, *, topic=None, product_id=None):
     ranked = get_top_buyer_objections(context['objections'], org_id=context['org_id'])
     if topic:
         ranked = [g for g in ranked if g['topic'] == topic and g['product_id'] == product_id]
+    elif product_id is not None:
+        ranked = [g for g in ranked if g['product_id'] == product_id]
     selected = ranked[0] if ranked else None
     proofs = valid_proof_points(context)
     if selected:

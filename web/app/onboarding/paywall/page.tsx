@@ -25,6 +25,7 @@ export default function PaywallPage() {
   const analysis = useMemo(() => buildAnalysis(answers), [answers]);
 
   useEffect(() => {
+    let active=true;
     const supabase = getSupabaseBrowserClient();
     async function load() {
       const sessionUser = supabase ? (await supabase.auth.getUser()).data.user : null;
@@ -35,11 +36,13 @@ export default function PaywallPage() {
       }
       setOwnerUserId(userId);
       const passport = await fetchOnboardingState(userId).catch(() => null);
-      const nextAnswers = passport?.onboarding_answers || loadLocalAnswers();
-      saveLocalAnswers(nextAnswers);
+      if(!active)return;
+      const nextAnswers = passport?.onboarding_answers || loadLocalAnswers(userId);
+      saveLocalAnswers(nextAnswers,userId);
       setAnswers(nextAnswers);
     }
     void load();
+    return()=>{active=false;};
   }, [router]);
 
   useEffect(() => {

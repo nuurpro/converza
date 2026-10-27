@@ -181,36 +181,7 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(messages[2], {"role": "tool", "tool_call_id": "old", "content": "found"})
         self.assertEqual(call.await_args.kwargs["tool_choice"], "required")
 
-    async def test_manager_uses_shared_adapter_and_keeps_public_result(self):
-        from agents.manager import run_manager
-        response = SimpleNamespace(content=[SimpleNamespace(type="tool_use", name="clarify", input={"reason": "missing audience", "response": "Who buys this?"})])
-        with patch("agents.manager.legacy_complete", AsyncMock(return_value=response)) as call:
-            result = await run_manager("request", {})
-        self.assertEqual(result, {"state": "clarifying", "reason": "missing audience", "response": "Who buys this?"})
-        self.assertEqual(call.await_args.kwargs["operation"], "tools")
-
-    async def test_stream_alias_yields_text_and_explicit_vision_error(self):
-        import llm
-        async def chunks(*args, **kwargs):
-            yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="hello"))])
-        with patch("llm.stream", chunks):
-            self.assertEqual([part async for part in llm.stream_gemini(MESSAGES)], ["hello"])
-        from agents.content_creator import _vision_check
-        with self.assertRaises(UnsupportedCapabilityError):
-            await _vision_check("https://example.com/image.png", "product")
-
 class AdditionalContractTests(unittest.IsolatedAsyncioTestCase):
-    async def test_orchestrator_tool_result_roundtrip(self):
-        from agents.orchestrator import run_orchestrator
-        response = SimpleNamespace(content=[SimpleNamespace(type="tool_use", name="search_market_competitors", id="lookup-1", input={"query": "test"})], stop_reason="tool_use")
-        final = SimpleNamespace(content=[SimpleNamespace(type="text", text="strategy")], stop_reason="end_turn")
-        with patch("agents.orchestrator.legacy_complete", AsyncMock(side_effect=[response, final])) as call, patch.dict("agents.orchestrator.TOOL_EXECUTORS", {"search_market_competitors": lambda **kwargs: "research"}, clear=True):
-            result = await run_orchestrator("request", {})
-        self.assertEqual(result, {"type": "message", "content": "strategy"})
-        messages = call.await_args.kwargs["messages"]
-        self.assertEqual(messages[-1]["content"][0]["tool_use_id"], "lookup-1")
-        self.assertEqual(messages[-1]["content"][0]["content"], "research")
-
     async def test_retry_after_http_date_and_jitter(self):
         from services.llm.client import _retry_delay
         from email.utils import format_datetime

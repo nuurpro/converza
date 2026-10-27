@@ -14,7 +14,7 @@ $env:PYTHONPATH='core'
 python -m services.sleyz
 ```
 
-The entry point loads `Sleyz/.env` and then `core/.env` without overriding existing
+The entry point loads `core/.env` without overriding existing
 process environment. Set `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SALES_BOT_TOKEN`,
 `HUAWEI_MAAS_API_KEY`, `HUAWEI_MAAS_MODEL`, `SALES_WEBHOOK_SECRET` and
 `MANAGER_BOT_TOKEN`. Register Telegram's webhook `/webhook` with its `secret_token`
@@ -41,8 +41,8 @@ a separate owner action.
 Docker uses repository-root build context and explicit source copies:
 
 ```powershell
-docker compose -f Sleyz/docker-compose.yml build
-docker compose -f Sleyz/docker-compose.yml up -d sales-bot sleyz-worker
+docker compose --env-file web/.env.local build sleyz-ingress
+docker compose --env-file web/.env.local --profile workers up -d sleyz-ingress sleyz-worker
 ```
 
 No environment files are copied into the image. Kubernetes deployment uses the

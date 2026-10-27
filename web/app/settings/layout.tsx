@@ -6,38 +6,23 @@ import clsx from "clsx";
 import { motion } from "motion/react";
 import {
   Palette,
-  KeyRound,
-  CreditCard,
-  UserRound,
   Brain,
-  Cpu,
   ChevronLeft,
-  UsersRound,
-  Plug,
+  Package,
 } from "lucide-react";
 
 const groups = [
   {
-    title: "Account",
-    items: [
-      { id: "profile", label: "Profile", href: "/settings/profile", icon: UserRound, hint: "Your name, role, avatar" },
-      { id: "billing", label: "Billing", href: "/settings/billing", icon: CreditCard, hint: "Plan, invoices, payment" },
-    ],
-  },
-  {
     title: "Workspace",
     items: [
       { id: "brand", label: "Brand passport", href: "/settings/brand", icon: Palette, hint: "Voice, tone, audience" },
-      { id: "audience", label: "Target audience", href: "/settings/audience", icon: UsersRound, hint: "Buyer profile, fears, markets" },
-      { id: "integrations", label: "Integrations", href: "/settings/integrations", icon: Plug, hint: "Connectors and data sources" },
-      { id: "tokens", label: "API tokens", href: "/settings/tokens", icon: KeyRound, hint: "Personal access tokens" },
+      { id: "products", label: "Products", href: "/products", icon: Package, hint: "Products and current prices" },
     ],
   },
   {
     title: "Engine",
     items: [
       { id: "memory", label: "Agent memory", href: "/settings/memory", icon: Brain, hint: "What the swarm remembers" },
-      { id: "models", label: "Models", href: "/settings/models", icon: Cpu, hint: "Default LLM per role" },
     ],
   },
 ];
@@ -155,7 +140,7 @@ function SettingsHub() {
           <span className="font-display text-accent">refine?</span>
         </h2>
         <p className="mt-3 max-w-md text-[15px] leading-relaxed text-text-secondary">
-          Eight rooms. Each one shapes how the swarm thinks, ships, and bills.
+          Brand passport, products, and agent memory.
         </p>
       </div>
 

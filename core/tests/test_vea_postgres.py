@@ -39,7 +39,7 @@ class VeaPostgresTests(unittest.TestCase):
         binding=build_binding(job)
         preset={'id':v['preset_id'],'version':1}
         preset_sha=hashlib.sha256(json.dumps(preset,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
-        manifest={'segments':[{'segment_id':'scene-0-cut-0','asset_id':'a','start_ms':0,'end_ms':3000}],
+        manifest={'segments':[{'segment_id':'scene-0-cut-0','asset_id':'a','start_ms':0,'end_ms':3000,'scene_index':0}],
                   'preset':preset,'preset_sha256':preset_sha,'duration_ms':3000,
                   'org_id':self.org,'script_sha256':binding['script_sha256'],'vea_config_sha256':binding['vea_config_sha256']}
         sha=hashlib.sha256(json.dumps(manifest,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
@@ -74,7 +74,7 @@ class VeaPostgresTests(unittest.TestCase):
         self.assertEqual(draft['vea_artifact']['id'],v['id'])
         with self.assertRaises(WorkflowConflict):
             self.run_async(self.repo.transition_draft(self.org,draft['id'],'edit',draft['revision'],'edit',edited_content='bad'))
-        with patch('services.vea.store.fetch_renderer',AsyncMock(return_value={'assets':[{'id':'replacement','kind':'video','duration_sec':3}]})):
+        with patch('services.vea.store.fetch_renderer',AsyncMock(return_value={'assets':[{'id':'replacement','kind':'video','duration_sec':3,'tags':{'en':['Close up']}}]})):
             replaced=self.run_async(vea.swap(self.org,v['id'],1,'scene-0-cut-0','replacement','swap'))
             replay=self.run_async(vea.swap(self.org,v['id'],1,'scene-0-cut-0','replacement','swap'))
         self.assertEqual(replaced,replay)
@@ -84,6 +84,30 @@ class VeaPostgresTests(unittest.TestCase):
         self.assertTrue(old['vea_artifact']['superseded'])
         with self.assertRaises(WorkflowConflict):
             self.run_async(self.repo.transition_draft(self.org,old['id'],'approve',old['revision'],'approve-old'))
+
+    def test_irrelevant_swap_preserves_approved_export_and_sql_state(self):
+        c=self.approved();vea=VeaStore(self.repo)
+        job=self.run_async(prepare_build(self.run_async(self.store.claim('build'))[0],self.store))
+        variant=self.run_async(vea.list_variants(self.org))[0]
+        self.run_async(self.store.complete_build(job,self.result(c,variant)))
+        variant=self.run_async(vea.get_variant(self.org,variant['id']))
+        draft=self.run_async(self.repo.get_draft(variant['draft_id']))
+        draft=self.run_async(self.repo.transition_draft(self.org,draft['id'],'approve',draft['revision'],'approve-export'))
+
+        def snapshot():
+            return (self.run_async(vea.get_variant(self.org,variant['id'])),
+                    self.run_async(self.repo.get_draft(draft['id'])),
+                    self.run_async(self.store.jobs(self.org)),
+                    self.client.table('vea_variant_revisions').select('*').eq('variant_id',variant['id']).execute().data,
+                    self.client.table('vea_decisions').select('*').eq('org_id',self.org).execute().data)
+
+        before=snapshot()
+        self.assertEqual(draft['status'],'APPROVED')
+        with patch('services.vea.store.fetch_renderer',AsyncMock(return_value={'assets':[
+                {'id':'replacement','kind':'video','duration_sec':10,'tags':{'en':['Mountain landscape']}}]})):
+            with self.assertRaises(WorkflowConflict):
+                self.run_async(vea.swap(self.org,variant['id'],1,'scene-0-cut-0','replacement','irrelevant'))
+        self.assertEqual(snapshot(),before)
 
     def test_ambiguous_failure_stays_blocked_and_nondefault_keeps_compatibility(self):
         c=self.approved();vea=VeaStore(self.repo)

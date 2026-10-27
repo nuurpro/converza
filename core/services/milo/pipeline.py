@@ -149,6 +149,7 @@ async def generate_campaign(context, *, prompt='', trigger='manual', language=No
     if language not in ('en','ru','uz'):
         raise ValueError('Campaign language must be en, ru or uz')
     selected = evidence['selected']
+    selected_scope = {k: selected[k] for k in ('product_id', 'topic')}
     examples = selected['examples'][:10]
     allowed_quotes = {r['id']:r['buyer_text'] for r in examples}
     allowed_proofs = {(p['source_id'],p['revision'],p['quote']) for p in evidence['proof_points']}
@@ -191,9 +192,9 @@ async def generate_campaign(context, *, prompt='', trigger='manual', language=No
                 compliance['violations'].append('Campaign proof must match the selected objection topic and product.')
             compliance['passed'] = not compliance['violations'] and compliance['passed']
             if compliance['passed']:
-                return dict(artifact=artifact,compliance=compliance,missing_evidence=[])
+                return dict(artifact=artifact,compliance=compliance,missing_evidence=[],selected_scope=selected_scope)
             violations = compliance['violations']
         except (ValueError, TypeError, KeyError, ValidationError, SchemaError):
             violations = ['Invalid structured campaign or compliance response; follow the supplied schema and current evidence exactly.']
             compliance = dict(passed=False,violations=violations,semantic_checked=False,checked_brand_revision=context['brand_revision'])
-    return dict(artifact=artifact,compliance=compliance,missing_evidence=[])
+    return dict(artifact=artifact,compliance=compliance,missing_evidence=[],selected_scope=selected_scope)

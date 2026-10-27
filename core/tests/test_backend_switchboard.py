@@ -156,16 +156,6 @@ class SwitchboardTests(unittest.IsolatedAsyncioTestCase):
                     ]
                 ),
             ),
-            patch(
-                "lib.switchboard.call_moneyprinterturbo",
-                AsyncMock(
-                    return_value={
-                        "task_id": "task-1",
-                        "video_url": "http://127.0.0.1:8080/tasks/task-1/final-1.mp4",
-                        "output_path": "http://127.0.0.1:8080/tasks/task-1/final-1.mp4",
-                    }
-                ),
-            ),
         ):
             await handle_squad_owner_message(
                 org_id="org-1",

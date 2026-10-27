@@ -126,7 +126,7 @@ class VeaApprovedEntryTests(unittest.IsolatedAsyncioTestCase):
         repo.seed_brand_passport('org', {'brand_name': 'Test'})
         with patch('lib.switchboard.classify_output', AsyncMock(return_value='customer_copy')), \
              patch('lib.switchboard.call_engine', AsyncMock(return_value='Unapproved words')) as engine, \
-             patch('lib.switchboard.call_moneyprinterturbo', AsyncMock(return_value={'video_url': 'bad'})) as renderer:
+             patch('services.milo.worker.render_approved_script', AsyncMock(return_value={'video_url': 'bad'})) as renderer:
             result = await handle_direct_agent_message(org_id='org', agent_slug='vea', text='Render a new ad', repo=repo)
         engine.assert_not_awaited()
         renderer.assert_not_awaited()

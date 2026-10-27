@@ -1,7 +1,8 @@
-import {authHeaders} from '@/lib/api/session';
+import {authenticatedFetch} from '@/lib/api/session';
 import {variantMutationRequest,type VeaAsset,type VeaPreset,type VeaVariant} from '@/lib/data/vea';
 async function veaRequest<T>(org:string,path:string,init?:RequestInit):Promise<T>{
- const response=await fetch(`/api/backend/api/vea/${encodeURIComponent(org)}${path}`,{...init,headers:await authHeaders({'Content-Type':'application/json',...(init?.headers??{})}),cache:'no-store'});
+ const headers=new Headers(init?.headers);headers.set('Content-Type','application/json');
+ const response=await authenticatedFetch(`/api/backend/api/vea/${encodeURIComponent(org)}${path}`,{...init,headers});
  const body=await response.json().catch(()=>null);
  if(!response.ok){const detail=body?.detail;throw new Error(typeof detail==='string'?detail:detail?.message??`Video request failed (${response.status}). Refresh before retrying.`);}
  return body as T;

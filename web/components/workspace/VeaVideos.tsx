@@ -19,7 +19,17 @@ function VideoWorkspace({org}:{org:string}){
  const [variants,setVariants]=useState<VeaVariant[]>([]),[presets,setPresets]=useState<VeaPreset[]>([]),[campaigns,setCampaigns]=useState<MiloCampaign[]>([]);
  const [campaignId,setCampaignId]=useState(''),[presetId,setPresetId]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[loaded,setLoaded]=useState(false),[busy,setBusy]=useState(false);
  const alive=useRef(false),sequence=useRef(0),lock=useRef(false),keys=useRef(new Map<string,string>());
- async function refresh(){const request=++sequence.current;try{const [videos,recipes,scripts]=await Promise.all([fetchVeaVariants(org),fetchVeaPresets(org),fetchMiloCampaigns(org)]);if(alive.current&&request===sequence.current){setVariants(videos.variants);setPresets(recipes.presets);setCampaigns(scripts.campaigns.filter(c=>c.script_status==='approved'&&!!c.artifact));setLoaded(true);}}catch(failure){if(alive.current&&request===sequence.current)setError(failure instanceof Error?failure.message:'Video refresh failed');}}
+ async function refresh(){
+  const request=++sequence.current;
+  const results=await Promise.allSettled([fetchVeaVariants(org),fetchVeaPresets(org),fetchMiloCampaigns(org)]);
+  if(!alive.current||request!==sequence.current)return;
+  const [videos,recipes,scripts]=results;
+  if(videos.status==='fulfilled'){setVariants(videos.value.variants);setLoaded(true);}
+  if(recipes.status==='fulfilled')setPresets(recipes.value.presets);
+  if(scripts.status==='fulfilled')setCampaigns(scripts.value.campaigns.filter(c=>c.script_status==='approved'&&!!c.artifact));
+  const errors=results.flatMap(result=>result.status==='rejected'?[result.reason instanceof Error?result.reason.message:'Video refresh failed']:[]);
+  setError(errors.join(' · '));
+ }
  useEffect(()=>{alive.current=true;void refresh();const timer=setInterval(()=>void refresh(),5000);return()=>{alive.current=false;sequence.current++;clearInterval(timer);};},[org]); // eslint-disable-line react-hooks/exhaustive-deps
  async function perform(signature:string,work:(key:string)=>Promise<unknown>,message:string){if(lock.current)return;lock.current=true;setBusy(true);setError('');setNotice('');let key=keys.current.get(signature);if(!key){key=crypto.randomUUID();keys.current.set(signature,key);}try{await work(key);keys.current.delete(signature);if(alive.current){setNotice(message);await refresh();}}catch(failure){if(alive.current){setError(failure instanceof Error?failure.message:'Video action failed');await refresh();}}finally{lock.current=false;if(alive.current)setBusy(false);}}
  const selectedCampaign=campaigns.find(c=>c.id===campaignId),selectedPreset=presets.find(p=>p.id===presetId);

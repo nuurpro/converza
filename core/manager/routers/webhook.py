@@ -7,9 +7,11 @@ db.client.send_telegram.
 """
 
 import logging
+import hmac
+import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request, BackgroundTasks
+from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 
 from db.client import (
     sb,
@@ -109,6 +111,12 @@ async def _process_callback(callback: dict) -> None:
 
 @router.post("/webhook")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
+    expected = os.getenv('MANAGER_WEBHOOK_SECRET', '')
+    if not expected:
+        raise HTTPException(503, 'Manager webhook secret is not configured')
+    provided = request.headers.get('x-telegram-bot-api-secret-token', '')
+    if not hmac.compare_digest(provided, expected):
+        raise HTTPException(403, 'Invalid webhook authentication')
     update = await request.json()
 
     callback = update.get("callback_query")
