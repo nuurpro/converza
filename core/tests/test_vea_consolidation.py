@@ -24,14 +24,14 @@ class SwapRelevanceTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(cases.get('selected_scope_' + language, False))
             self.assertTrue(cases.get('visual_relevance_' + language, False))
 
-    async def test_irrelevant_swap_keeps_approved_export_and_all_state(self):
+    async def test_ineligible_swap_keeps_approved_export_and_all_state(self):
         row = await self.completed_default()
         draft = await self.repo.get_draft(row['draft_id'])
         await self.repo.transition_draft('org', draft['id'], 'approve', draft['revision'], 'export')
         vea = VeaStore(self.repo)
         before = deepcopy((vea.state, self.milo.state, self.repo.drafts))
-        assets = [{'id': 'replacement', 'kind': 'video', 'duration_sec': 10, 'tags': tags}
-                  for tags in ({'en': ['Mountain landscape']}, {}, {'ru': ['Product']}, {'en': ['Products']})]
+        assets = [storage_tests.catalog_asset(**changes) for changes in (
+            {'org_id':'foreign'}, {'rights_confirmed':False}, {'width':0}, {'permitted_uses':['internal']})]
         for asset in assets:
             with self.subTest(tags=asset['tags']), patch('services.vea.store.fetch_renderer', AsyncMock(return_value={'assets': [asset]})):
                 with self.assertRaises(WorkflowConflict):
@@ -42,26 +42,23 @@ class SwapRelevanceTests(unittest.IsolatedAsyncioTestCase):
         row = await self.completed_default()
         vea = VeaStore(self.repo)
         catalog = AsyncMock(return_value={'assets': [
-            {'id': 'replacement', 'kind': 'video', 'duration_sec': 3, 'tags': {'und': ['PRODUCT!']}}]})
+            storage_tests.catalog_asset(tags={'und':['PRODUCT!']})]})
         with patch('services.vea.store.fetch_renderer', catalog):
             new = await vea.swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'valid')
         with patch('services.vea.store.fetch_renderer', AsyncMock(side_effect=AssertionError('Replay fetched catalog'))):
             self.assertEqual(await vea.swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'valid'), new)
         self.assertEqual(new['revision'], 2)
 
-    async def test_relevance_uses_the_segments_scene_not_any_other_scene(self):
+    async def test_manual_swap_does_not_need_the_scenes_lexical_tags(self):
         row = await self.completed_default()
         vea = VeaStore(self.repo)
         self.milo.state['campaigns'][self.c['id']]['artifact']['video_script'].append(
             {'spoken_narration': 'Second scene', 'visual_broll_cues': 'Mountain landscape', 'on_screen_text': ''})
         catalog = AsyncMock(return_value={'assets': [
-            {'id': 'replacement', 'kind': 'video', 'duration_sec': 3, 'tags': {'en': ['Mountain']}}]})
-        with patch('services.vea.store.fetch_renderer', catalog), self.assertRaises(WorkflowConflict):
-            await vea.swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'wrong-scene')
-        for index in (None, -1, True, 99):
-            vea.state['variants'][row['id']]['composition_manifest']['segments'][0]['scene_index'] = index
-            with self.subTest(index=index), patch('services.vea.store.fetch_renderer', catalog), self.assertRaises(WorkflowConflict):
-                await vea.swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'bad-index')
+            storage_tests.catalog_asset(tags={'en':['Mountain']},product_ids=['other'])]})
+        with patch('services.vea.store.fetch_renderer', catalog):
+            replaced = await vea.swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'wrong-scene')
+        self.assertEqual(replaced['revision'], 2)
 
     async def test_catalog_read_does_not_bypass_concurrent_revision_or_evidence_changes(self):
         row = await self.completed_default()
@@ -69,21 +66,21 @@ class SwapRelevanceTests(unittest.IsolatedAsyncioTestCase):
 
         async def changed_evidence(*args):
             self.repo.brand_passports['org']['revision'] = 2
-            return {'assets': [{'id': 'replacement', 'kind': 'video', 'duration_sec': 3, 'tags': {'en': ['Product']}}]}
+            return {'assets': [storage_tests.catalog_asset()]}
 
         with patch('services.vea.store.fetch_renderer', changed_evidence), self.assertRaises(WorkflowConflict):
             await vea.swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'stale-evidence')
         self.assertEqual((await vea.get_variant('org', row['id']))['revision'], 1)
         self.assertEqual(vea.state['history'], {})
 
-    async def test_sql_adapter_rejects_irrelevant_clip_before_mutation_rpc(self):
+    async def test_sql_adapter_rejects_unlicensed_clip_before_mutation_rpc(self):
         row = await self.completed_default()
         raw = deepcopy(VeaStore(self.repo).state['variants'][row['id']])
         vea = VeaStore(SimpleNamespace(client=object()))
         vea._rpc = AsyncMock(side_effect=[None, raw, raw])
         vea.milo.get_campaign = AsyncMock(return_value=self.c)
         with patch('services.vea.store.fetch_renderer', AsyncMock(return_value={'assets': [
-                {'id': 'replacement', 'kind': 'video', 'duration_sec': 10, 'tags': {'en': ['Unrelated']}}]})):
+                storage_tests.catalog_asset(rights_confirmed=False,tags={'en':['Unrelated']})]})):
             with self.assertRaises(WorkflowConflict):
                 await vea.swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'sql-reject')
         self.assertEqual([call.args[0] for call in vea._rpc.await_args_list], ['replay', 'get'])

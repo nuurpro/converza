@@ -1,5 +1,9 @@
 # Verification Report
 
+For the newer 2026-10-31 workspace/feed/renderer changes and their separate
+rollout blockers, see [the upgrade report](WORKSPACE_RENDERER_UPGRADE.md).
+The results below describe the prior consolidation, not a v1.3.9 cutover.
+
 Date: 2026-10-27. Overall consolidation status: **BLOCKED at physical retirement**.
 The application repairs and local integrated verification pass. Eight obsolete
 sibling roots remain because directory deletion is blocked and the desktop chat

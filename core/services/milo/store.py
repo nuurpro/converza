@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from starlette.concurrency import run_in_threadpool
 from services.workflow.state import WorkflowConflict
 from .contracts import TOPICS
+from services.memory import is_complete_claim_quote
 
 
 DEFAULTS = dict(daily_enabled=True, spike_enabled=True, daily_hour=9, timezone='Asia/Tashkent',
@@ -105,9 +106,17 @@ class MiloStore:
             automatic = trigger != 'manual'
             existing = next((c for c in self.state['campaigns'].values() if c['org_id'] == org and c['dedup_key'] == key and (key or automatic)), None)
             if existing:
-                if trigger == 'manual' and (existing['trigger'], existing['prompt'], existing['language']) != (trigger, prompt, language):
-                    raise WorkflowConflict('Idempotency key reused with a different request')
+                if trigger == 'manual':
+                    request = next((j['payload'] for j in self.state['jobs'].values()
+                        if j['campaign_id'] == existing['id'] and j['kind'] == 'generate'), {})
+                    if ((existing['trigger'], existing['prompt'], existing['language']) != (trigger, prompt, language)
+                            or ('requested_product_id' in request and
+                                (request['requested_product_id'], request['requested_topic']) != (product_id, topic))
+                            or ('requested_product_id' not in request and product_id is not None
+                                and product_id != existing.get('product_id'))):
+                        raise WorkflowConflict('Idempotency key reused with a different request')
                 return deepcopy(existing)
+            self._assert_product(org, product_id)
             settings = {**DEFAULTS, **self.state['settings'].get(org, {})}
             if automatic and not settings[trigger + '_enabled']:
                 return None
@@ -126,8 +135,17 @@ class MiloStore:
                        language=language, topic=topic, product_id=product_id, dedup_key=key or _id(), result=None,
                        created_at=_now(), updated_at=_now(), daily_key=local_day, evidence_ids=deepcopy(evidence_ids or []))
             self.state['campaigns'][row['id']] = row
-            _job(self.state, org, 'generate', {'campaign_id': row['id']}, row['id'], row['id'])
+            _job(self.state, org, 'generate', {'campaign_id': row['id'],
+                 'requested_product_id': product_id, 'requested_topic': topic}, row['id'], row['id'])
             return deepcopy(row)
+
+    def _assert_product(self, org, product_id):
+        if product_id is None:
+            return
+        if (not isinstance(product_id, str) or not product_id or product_id != product_id.strip()
+                or not any(str(p.get('id')) == product_id and str(p.get('org_id')) == str(org)
+                           and not p.get('deleted_at') for p in getattr(self.repo, 'brand_products', []))):
+            raise WorkflowConflict('Selected product is not active in this brand catalog')
 
     async def list_campaigns(self, org):
         if not self.memory:
@@ -231,11 +249,14 @@ class MiloStore:
                 raise WorkflowConflict('Wrong job kind')
             c = self.state['campaigns'][j['campaign_id']]
             if selected_scope is not None:
+                self._assert_product(j['org_id'], selected_scope['product_id'])
                 if ((c.get('topic') is not None and
                      (c['topic'], c.get('product_id')) != (selected_scope['topic'], selected_scope['product_id'])) or
                     (c.get('product_id') is not None and c['product_id'] != selected_scope['product_id'])):
                     raise WorkflowConflict('Generation scope differs from the reserved evidence')
                 c.update(deepcopy(selected_scope))
+            else:
+                self._assert_product(j['org_id'], c.get('product_id'))
             c.update(artifact=deepcopy(artifact), compliance=deepcopy(compliance), missing_evidence=deepcopy(missing_evidence or []),
                      status='needs_evidence' if missing_evidence else ('awaiting_review' if compliance.get('passed') else 'blocked'), revision=c['revision']+1, updated_at=_now())
             self._done(j)
@@ -251,7 +272,7 @@ class MiloStore:
             sources = sources.values()
         for ref in artifact.get('proof_references', []):
             source = next((s for s in sources if s['id'] == ref['source_id'] and s['org_id'] == org), None)
-            if not source or source.get('deleted_at') or source.get('forgotten_at') or source['revision'] != ref['revision'] or not ref.get('quote') or ref['quote'] not in source.get('content', ''):
+            if not source or source.get('deleted_at') or source.get('forgotten_at') or source['revision'] != ref['revision'] or not is_complete_claim_quote(source.get('content', ''), ref.get('quote', '')):
                 raise WorkflowConflict('Proof evidence changed')
 
     async def renew(self, job, lease_seconds=600):
@@ -278,12 +299,14 @@ class MiloStore:
             if not c or c['org_id'] != org or c['revision'] != expected_revision or c['status'] not in ('awaiting_review', 'blocked') or c['script_status'] != 'pending':
                 raise WorkflowConflict('Campaign revision or organization conflict')
             if action == 'approve':
+                self._assert_product(org, c.get('product_id'))
                 checks = compliance if compliance is not None else c['compliance']
                 if not checks.get('passed') or not checks.get('semantic_checked') or checks.get('checked_brand_revision') != c['artifact'].get('brand_revision') or c['missing_evidence']:
                     raise WorkflowConflict('Campaign requires compliance review')
                 self._check_evidence(org, c['artifact'])
                 c.update(script_status='approved', build_status='queued', compliance=deepcopy(checks))
                 _job(self.state, org, 'build', dict(campaign_id=id, script_revision=expected_revision,
+                     product_id=c.get('product_id'),
                      video_script=deepcopy(c['artifact']['video_script']), language=c['artifact'].get('language') or c.get('language') or 'en',
                      submission_state='not_submitted', provider_attempt=1), f'{id}:{expected_revision}', id)
             elif action == 'edit':
@@ -304,6 +327,9 @@ class MiloStore:
             j = self._leased(job)
             if j['kind'] != 'build':
                 raise WorkflowConflict('Wrong job kind')
+            if ('product_id' in values and values['product_id'] !=
+                    self.state['campaigns'][j['campaign_id']].get('product_id')):
+                raise WorkflowConflict('Cannot replace approved product scope')
             if values.get('submission_state') in ('submission_started', 'submitting') and not (j['payload'].get('provider_task_id') or j['payload'].get('task_id')):
                 self._check_evidence(j['org_id'], self.state['campaigns'][j['campaign_id']]['artifact'])
             j['payload'].update(deepcopy(values))

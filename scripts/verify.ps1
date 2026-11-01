@@ -14,6 +14,8 @@ python -m services.workflow.evals.run
 Check-Exit
 python evals/memory/run.py
 Check-Exit
+python -m services.memory.evals.run
+Check-Exit
 python evals/memory_sleyz_safety.py
 Check-Exit
 python -m services.sleyz.evals.run
@@ -21,6 +23,8 @@ Check-Exit
 python -m services.milo.evals.run
 Check-Exit
 python -m services.vea.evals.run
+Check-Exit
+python -m services.feed.evals
 Check-Exit
 Set-Location "$root/web"
 npm test

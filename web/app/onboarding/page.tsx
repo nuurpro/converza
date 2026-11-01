@@ -13,7 +13,8 @@ import {
   toneOptions,
 } from "@/lib/onboarding";
 import { markOnboardingComplete, saveOnboardingAnswers } from "@/lib/api/onboarding";
-import {getWorkspaceSession} from '@/lib/org';
+import {restoreWorkspaceSession} from '@/lib/api/session';
+import {getDashboardGateDestination} from '@/lib/access';
 
 type QuestionKind = "text" | "select" | "number" | "multi" | "color";
 
@@ -54,12 +55,16 @@ export default function OnboardingPage() {
   const [ownerUserId, setOwnerUserId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     let active=true;
 
     async function readUser() {
+      setLoading(true);setError('');
+      try {
       const sessionUser = supabase ? (await supabase.auth.getUser()).data.user : null;
       const userId = sessionUser?.id || "";
       if(!active)return;
@@ -67,14 +72,23 @@ export default function OnboardingPage() {
         router.replace("/landing");
         return;
       }
+      const restored=await restoreWorkspaceSession();
+      if(!active)return;
+      if(restored.user?.id!==userId)throw new Error('Workspace owner changed');
+      if(restored.passport?.onboarding_completed_at){
+        const destination=getDashboardGateDestination(userId,restored.passport);
+        router.replace(destination==='allow'?'/':destination);return;
+      }
       window.localStorage.setItem(OWNER_USER_STORAGE_KEY, userId);
       setOwnerUserId(userId);
-      setAnswers(getWorkspaceSession().passport?.onboarding_answers ?? loadLocalAnswers(userId));
+      setAnswers(restored.passport?.onboarding_answers ?? loadLocalAnswers(userId));
+      }catch(failure){if(active)setError(failure instanceof Error?failure.message:'Could not restore workspace');}
+      finally{if(active)setLoading(false);}
     }
 
     void readUser();
     return()=>{active=false;};
-  }, [router]);
+  }, [router,loadAttempt]);
 
   const visibleQuestions = useMemo(() => {
     if (answers.current_marketing_handler === "nobody") {
@@ -117,6 +131,8 @@ export default function OnboardingPage() {
       setSaving(false);
     }
   }
+
+  if(loading || !ownerUserId)return <main className="grid min-h-screen place-items-center bg-bg-primary p-5"><div role="status">{error || 'Restoring your workspace...'}{error&&<button type="button" onClick={()=>setLoadAttempt(value=>value+1)} className="ml-3 p-3 underline">Retry</button>}</div></main>;
 
   return (
     <main className="min-h-screen bg-bg-primary px-4 py-6 text-text-primary">

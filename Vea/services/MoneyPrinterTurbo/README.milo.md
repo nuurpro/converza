@@ -1,5 +1,9 @@
 # Vea renderer for approved Milo campaigns
 
+Pinned upstream v1.3.9 and the Converza overlay are described in
+[UPGRADE.v1.3.9.md](UPGRADE.v1.3.9.md). Build only `Dockerfile.milo` with the
+hash-pinned `requirements.milo.lock`; do not deploy upstream's WebUI/CLI image.
+
 The versioned VEA pipeline is documented in [README.vea.md](README.vea.md). Enable
 it with `VEA_ENABLED=1` after provisioning its local asset catalog, narration voices
 and Whisper model. Requests carrying bound `vea_config` use deterministic recipes,

@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/harry0703/MoneyPrinterTurbo.git",
+  "release": "https://github.com/harry0703/MoneyPrinterTurbo/releases/tag/v1.3.9",
+  "tag": "v1.3.9",
+  "commit": "6992380c5e82f07f3e1fc46b90927b6f1c655407",
+  "merge_base": "63113a34228ce569436e2cf0037d378c64b3a2ae",
+  "license": "MIT",
+  "deployment": "Dockerfile.milo, approved scripts only; no WebUI, new providers or publishing",
+  "runtime_lock": "requirements.milo.lock",
+  "overlay": [
+    "Authenticated bearer control API and bound approved scene validation",
+    "SQLite durable receipts and startup lock, public final MP4/JPEG preview only",
+    "Deterministic VEA recipes, local asset catalog, narration and alignment",
+    "Strict automatic initiative selection and persisted operator clip overrides",
+    "Read-only config template fallback, fixed MPT_HOME for existing storage paths"
+  ]
+}

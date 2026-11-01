@@ -30,7 +30,7 @@ class VeaRouteTests(unittest.TestCase):
             result=self.client.get('/api/vea/a/assets?language=ru&product_id=product')
         self.assertEqual(result.status_code,200,result.text)
         self.assertNotIn('path',result.json()['assets'][0])
-        self.assertEqual(fetch.await_args.args,('assets',{'org_id':'a','product_id':'product','language':'ru'}))
+        self.assertEqual(fetch.await_args.args,('assets',{'org_id':'a','selection':'manual','language':'ru'}))
 
     def test_approved_script_required_and_idempotency_header_required(self):
         with patch.dict('os.environ',{'VEA_PRESETS_ENABLED':'true'}):

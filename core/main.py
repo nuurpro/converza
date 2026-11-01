@@ -211,6 +211,12 @@ app.include_router(create_memory_router(
     lambda user_id, org_id: _assert_user_owns_org(user_id, org_id),
 ))
 
+from services.feed.routes import create_feed_router
+
+app.include_router(create_feed_router(
+    get_switchboard_repo, require_authenticated_user, _assert_user_owns_org,
+))
+
 
 def _assert_onboarding_owner(auth: AuthContext, owner_user_id: str) -> None:
     if owner_user_id != auth.user_id:
@@ -228,7 +234,7 @@ def _assert_org_not_owned_by_other(user_id: str, org_id: str) -> None:
         raise HTTPException(status_code=403, detail="Org is already linked to another user")
 
 
-def _onboarding_payload(owner_user_id: str, org_id: str, answers: dict[str, Any]) -> dict[str, Any]:
+def _onboarding_payload(owner_user_id: str, org_id: str | None, answers: dict[str, Any]) -> dict[str, Any]:
     tones = answers.get("brand_tone") or []
     colors = answers.get("brand_colors") or []
     channels = answers.get("channels_requested") or []
@@ -264,23 +270,21 @@ def _get_onboarding_passport(owner_user_id: str) -> dict[str, Any] | None:
         .select("*")
         .eq("owner_user_id", owner_user_id)
         .order("updated_at", desc=True)
-        .limit(1)
+        .order("id")
+        .limit(2)
         .execute()
     )
+    if len(result.data or []) > 1 or (result.data and not result.data[0].get("org_id")):
+        raise ValueError("Workspace ownership needs repair; retry after the ownership link is restored")
     return result.data[0] if result.data else None
 
 
-def _save_onboarding_passport(owner_user_id: str, org_id: str, answers: dict[str, Any]) -> dict[str, Any]:
-    sb = get_supabase()
-    existing = _get_onboarding_passport(owner_user_id)
+def _save_onboarding_passport(owner_user_id: str, org_id: str | None, answers: dict[str, Any]) -> dict[str, Any]:
     payload = _onboarding_payload(owner_user_id, org_id, answers)
-
-    if existing:
-        payload["paywall_status"] = existing.get("paywall_status") or "pending"
-        result = sb.table("brand_passports").update(payload).eq("id", existing["id"]).execute()
-    else:
-        result = sb.table("brand_passports").insert(payload).execute()
-    return result.data[0]
+    result = get_supabase().rpc("workspace_save_passport", {
+        "p_owner": owner_user_id, "p_expected_org": org_id, "p_payload": payload,
+    }).execute()
+    return result.data
 
 
 def _update_onboarding_status(owner_user_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -310,7 +314,9 @@ async def onboarding_state(owner_user_id: str, auth: AuthContext = Depends(requi
     except Exception as e:
         if _is_missing_onboarding_migration(e):
             _raise_onboarding_migration_error()
-        raise HTTPException(status_code=500, detail=str(e))
+        if isinstance(e, ValueError) and "ownership" in str(e):
+            raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=503, detail="Could not restore workspace. Please retry.")
 
 
 @app.post("/api/onboarding/passport")
@@ -319,19 +325,21 @@ async def save_onboarding_passport(
     auth: AuthContext = Depends(require_authenticated_user),
 ):
     _assert_onboarding_owner(auth, request.owner_user_id)
-    org_id = request.org_id or get_default_org_id()
-    _assert_org_not_owned_by_other(auth.user_id, org_id)
     try:
         passport = _save_onboarding_passport(
             owner_user_id=request.owner_user_id,
-            org_id=org_id,
+            org_id=request.org_id,
             answers=request.answers,
         )
         return {"passport": passport}
     except Exception as e:
+        if "workspace_ownership" in str(e):
+            raise HTTPException(status_code=409, detail="Workspace ownership needs repair; no organization was created")
+        if "workspace_save_passport" in str(e) and ("PGRST202" in str(e) or "does not exist" in str(e)):
+            raise HTTPException(status_code=503, detail="Workspace migration 011_workspace_restore.sql is pending")
         if _is_missing_onboarding_migration(e):
             _raise_onboarding_migration_error()
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=503, detail="Could not save workspace. Please retry.")
 
 
 @app.post("/api/onboarding/complete")

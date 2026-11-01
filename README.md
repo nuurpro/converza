@@ -28,11 +28,12 @@ Agent identities live only in `Milo/identity.md`, `Sleyz/identity.md`, and
    Supabase URL and anon key are public; service-role/model/channel keys stay
    server-side. Native Python services load `core/.env`, regardless of cwd;
    existing process variables take precedence.
-3. Review and apply migrations `001` through `010` in order in the target
+3. Review and apply migrations `001` through `013` in order in the target
    Supabase project. This repository never applies production migrations at startup.
 4. Provision local service credentials and persistent storage:
 
 ```powershell
+python scripts/check_upgrade_schema.py --require-ready
 python scripts/provision_local.py
 docker volume create converza-vea-storage
 docker compose --env-file web/.env.local up -d --build
@@ -40,6 +41,13 @@ docker compose --env-file web/.env.local up -d --build
 
 Open <http://127.0.0.1:3000>. Core health: <http://127.0.0.1:8000/health>.
 The authenticated renderer capability endpoint is `/api/v1/capabilities`.
+Set `WEB_PUBLIC_ORIGIN` to the exact browser origin, including its port. The
+default is `http://127.0.0.1:3000`; using `localhost` instead requires changing
+that setting. Docker's internal host is not a trusted public origin.
+
+For the workspace/feed/renderer upgrade, follow
+[the migration and rollout gates](docs/WORKSPACE_RENDERER_UPGRADE.md) before
+replacing an existing stack. Source verification is not a production migration.
 
 Background workers are deliberately opt-in. They can invoke paid inference and
 deliver already-approved real messages. Start them only after reviewing the
@@ -83,7 +91,8 @@ npm run build
 ```
 
 SQL tests require explicitly named disposable PostgreSQL databases via
-`CONVERZA_WORKFLOW_TEST_DSN` and `MEMORY_TEST_DSN`. `scripts/verify.ps1 -Journey`
+`CONVERZA_WORKFLOW_TEST_DSN`, `MEMORY_TEST_DSN`, and `CONVERZA_FEED_TEST_DSN`
+(its own `test_converza_feed` database). `scripts/verify.ps1 -Journey`
 also enables the real-media journey with its separate
 `CONVERZA_JOURNEY_TEST_DSN` (`test_converza_journey`) and an isolated renderer
 test container. Paid `--live` evaluation lanes are separate,

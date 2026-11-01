@@ -10,6 +10,14 @@ from services.milo.store import MiloStore
 from services.workflow.state import WorkflowConflict
 
 
+def catalog_asset(org='org', **changes):
+    asset = dict(id='replacement', org_id=org, kind='video', duration_sec=3,
+                 width=1920, height=1080, sha256='b'*64, tags={'en':['Product','Close up']},
+                 product_ids=[], rights_confirmed=True, permitted_uses=['advertising'])
+    asset.update(changes)
+    return asset
+
+
 class VeaStorageTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.repo = InMemoryRepository()
@@ -100,7 +108,7 @@ class VeaStorageTests(unittest.IsolatedAsyncioTestCase):
         from services.vea.store import VeaStore, validate_review
         row = await self.completed_default()
         old_draft = await self.repo.get_draft(row['draft_id'])
-        with patch('services.vea.store.fetch_renderer', AsyncMock(return_value={'assets':[{'id':'replacement','kind':'video','duration_sec':3,'tags':{'en':['Product']}}]})):
+        with patch('services.vea.store.fetch_renderer', AsyncMock(return_value={'assets':[catalog_asset()]})):
             new = await VeaStore(self.repo).swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'swap')
             replay = await VeaStore(self.repo).swap('org', row['id'], 1, 'scene-0-cut-0', 'replacement', 'swap')
         self.assertEqual(new, replay)
@@ -145,7 +153,7 @@ class VeaStorageTests(unittest.IsolatedAsyncioTestCase):
         row=await self.completed_default()
         draft=await self.repo.get_draft(row['draft_id'])
         await self.repo.transition_draft('org',draft['id'],'approve',draft['revision'],'approved-export')
-        with patch('services.vea.store.fetch_renderer',AsyncMock(return_value={'assets':[{'id':'replacement','kind':'video','duration_sec':3,'tags':{'en':['Product']}}]})):
+        with patch('services.vea.store.fetch_renderer',AsyncMock(return_value={'assets':[catalog_asset()]})):
             await VeaStore(self.repo).swap('org',row['id'],1,'scene-0-cut-0','replacement','swap')
         draft=await self.repo.get_draft(draft['id'])
         self.assertEqual(draft['status'],'REJECTED')

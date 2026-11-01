@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { OWNER_USER_STORAGE_KEY } from "@/lib/onboarding";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isAuthFormValid, restoreWorkspaceDestination } from '@/lib/access';
 
 const navItems = [
   { href: "#problem", label: "Problem" },
@@ -1747,17 +1748,11 @@ function AuthModal({
     letter: /[A-Za-z]/.test(values.password),
     number: /\d/.test(values.password),
   };
-  const emailValid = values.email.includes("@") && values.email.includes(".");
   const passwordValid =
     passwordChecks.length && passwordChecks.letter && passwordChecks.number;
-  const showPasswordHints = values.password.length > 0;
+  const showPasswordHints = step === 'signUp' && values.password.length > 0;
   const isFormStep = step === "signIn" || step === "signUp";
-  const formValid =
-    values.email.trim().length > 0 &&
-    emailValid &&
-    values.password.length > 0 &&
-    passwordValid &&
-    (step === "signIn" || values.phone.trim().length > 0);
+  const formValid = isAuthFormValid(step, values);
 
   useEffect(() => {
     if (!open) return;
@@ -1825,8 +1820,9 @@ function AuthModal({
       }
 
       window.localStorage.setItem(OWNER_USER_STORAGE_KEY, userId);
+      const destination = await restoreWorkspaceDestination();
       onClose();
-      router.push("/onboarding");
+      router.replace(destination);
     } catch (error) {
       setSubmittedMessage(error instanceof Error ? error.message : "Authentication failed.");
     } finally {
@@ -2023,14 +2019,14 @@ function AuthModal({
               label="Password"
               name="password"
               type="password"
-              placeholder="Minimum 8 characters"
+              placeholder={step==='signUp'?'Minimum 8 characters':'Your password'}
               value={values.password}
               onChange={(value) => {
                 setValues((current) => ({ ...current, password: value }));
                 setSubmittedMessage("");
               }}
               onBlur={() => setPasswordTouched(true)}
-              minLength={8}
+              minLength={step==='signUp'?8:1}
             />
 
             {showPasswordHints ? (

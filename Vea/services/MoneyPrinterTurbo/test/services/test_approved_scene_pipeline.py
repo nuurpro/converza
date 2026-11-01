@@ -27,13 +27,19 @@ class ApprovedScenePipelineTests(unittest.TestCase):
         self.helper=importlib.util.module_from_spec(helper_spec); helper_spec.loader.exec_module(self.helper)
         self.config=SimpleNamespace(app={'subtitle_provider':'edge'})
         services=ModuleType('app.services'); services.__path__=[]
-        self.dependencies={name:MagicMock() for name in ['llm','material','subtitle','twelvelabs','video','voice','upload_post','state']}
+        self.dependencies={name:MagicMock() for name in ['llm','material','subtitle','twelvelabs','video','voice','upload_post','state',
+            'bgm','elevenlabs_music','loomloom','metaso_minimax','muapi','ofox','sonilo','task_artifacts','volcengine_seedance']}
         for name,value in self.dependencies.items():setattr(services,name,value)
         utils=ModuleType('app.utils'); utils.utils=MagicMock(); utils.file_security=MagicMock()
+        writer_spec=importlib.util.spec_from_file_location('subtitle_writer_fixture',ROOT/'app/utils/subtitle_writer.py')
+        writer=importlib.util.module_from_spec(writer_spec); writer_spec.loader.exec_module(writer)
+        const_spec=importlib.util.spec_from_file_location('renderer_constants_fixture',ROOT/'app/models/const.py')
+        const=importlib.util.module_from_spec(const_spec); const_spec.loader.exec_module(const)
         stubs={'loguru':SimpleNamespace(logger=MagicMock()),'app.config':SimpleNamespace(config=self.config),
-            'app.models':SimpleNamespace(const=SimpleNamespace(TASK_STATE_FAILED=-1,TASK_STATE_PROCESSING=4,TASK_STATE_COMPLETE=1)),
+            'app.models':SimpleNamespace(const=const),
             'app.models.schema':SimpleNamespace(VideoConcatMode=Concat,VideoParams=object),
-            'app.services':services,'app.services.approved_scenes':self.helper,'app.utils':utils}
+            'app.services':services,'app.services.approved_scenes':self.helper,'app.utils':utils,
+            'app.utils.subtitle_writer':writer}
         spec=importlib.util.spec_from_file_location('approved_task_pipeline_test',ROOT/'app/services/task.py')
         self.task=importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules,stubs):spec.loader.exec_module(self.task)
@@ -44,7 +50,9 @@ class ApprovedScenePipelineTests(unittest.TestCase):
     def params(self):
         scenes=self.scenes()
         return SimpleNamespace(video_script='Exact narration.',approved_scenes=[SimpleNamespace(model_dump=lambda:scenes[0])],
-            subtitle_enabled=True,video_source='pexels',video_concat_mode='sequential')
+            subtitle_enabled=True,video_source='pexels',video_concat_mode='sequential',
+            voice_volume=1,video_language='en',custom_audio_file=None,voice_name='fixture',voice_rate=1,
+            video_subject='Approved test',bgm_type='',bgm_volume=0,image_motion='none')
 
     def test_generate_script_passes_approved_whitespace_unchanged_without_model(self):
         params=self.params(); params.video_script='  Exact narration.  '
@@ -95,7 +103,7 @@ class ApprovedScenePipelineTests(unittest.TestCase):
              patch.object(self.task,'generate_audio',return_value=('audio.mp3',3,object())), \
              patch.object(self.task,'generate_subtitle',return_value='approved-scenes.srt'), \
              patch.object(self.task,'get_video_materials',return_value=['steel.mp4']), \
-             patch.object(self.task,'generate_final_videos',return_value=(['final.mp4'],['combined.mp4'])):
+             patch.object(self.task,'generate_final_videos',return_value=(['final.mp4'],['combined.mp4'],[])):
             result=self.task.start('id',params)
         self.assertEqual(result['videos'],['final.mp4'])
         self.assertEqual(result['milo_binding'],{'job_id':'build','org_id':'brand'})

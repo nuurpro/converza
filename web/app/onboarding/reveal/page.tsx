@@ -17,30 +17,36 @@ export default function RevealPage() {
   const router = useRouter();
   const [answers, setAnswers] = useState<OnboardingAnswers>({});
   const [analysis, setAnalysis] = useState<OnboardingAnalysis | null>(null);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let active=true;
     const supabase = getSupabaseBrowserClient();
     async function load() {
+      setError('');
+      try {
       const sessionUser = supabase ? (await supabase.auth.getUser()).data.user : null;
       const ownerUserId = sessionUser?.id || "";
       if (!ownerUserId) {
         router.replace("/landing");
         return;
       }
-      const passport = await fetchOnboardingState(ownerUserId).catch(() => null);
+      const passport = await fetchOnboardingState(ownerUserId);
       if(!active)return;
+      if (!passport?.onboarding_completed_at) {router.replace('/onboarding');return;}
       const nextAnswers = passport?.onboarding_answers || loadLocalAnswers(ownerUserId);
       saveLocalAnswers(nextAnswers,ownerUserId);
       setAnswers(nextAnswers);
       setAnalysis(buildAnalysis(nextAnswers));
+      } catch (failure) {if(active)setError(failure instanceof Error?failure.message:'Could not restore workspace');}
     }
     void load();
     return()=>{active=false;};
-  }, [router]);
+  }, [router,retry]);
 
   if (!analysis) {
-    return <main className="grid min-h-screen place-items-center bg-bg-primary text-text-muted">Preparing your analysis...</main>;
+    return <main className="grid min-h-screen place-items-center bg-bg-primary text-text-muted"><div role="status">{error||'Preparing your analysis...'}{error&&<button className="mt-3 block rounded-lg border border-border px-4 py-3" onClick={()=>setRetry(value=>value+1)}>Retry</button>}</div></main>;
   }
 
   return (

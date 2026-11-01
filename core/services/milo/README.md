@@ -101,7 +101,7 @@ All routes are under `/api/milo/{org_id}` and use existing backend/session and
 organization ownership checks. The frontend forwards them through its server
 proxy and polls active campaign/job state every five seconds.
 
-- GET/POST `/campaigns`; POST accepts `{prompt,language?}` plus Idempotency-Key.
+- GET/POST `/campaigns`; POST accepts `{prompt,language?,product_id?}` plus Idempotency-Key.
 - GET `/campaigns/{id}`.
 - POST `/campaigns/{id}/script/{edit|approve|reject}` accepts
   `{expected_revision,video_script?}` plus Idempotency-Key. Only edit accepts
@@ -114,6 +114,32 @@ proxy and polls active campaign/job state every five seconds.
   provider attempt before polling resumes.
 
 ## Verify and deploy
+
+Apply additive migration `013_milo_scope.sql` after `010_consolidation.sql`.
+It validates explicit canonical `brand_products.id` selections under the same
+transaction/organization lock as campaign creation and locks the catalog row
+against concurrent deletion. Foreign, missing and retired initiatives cannot
+create campaigns or jobs. No second product-identity column is introduced.
+Generation-job request metadata distinguishes an original unscoped request from
+a later server-selected initiative, so retries replay accurately and cannot
+silently change an explicit selection. Completion and script approval recheck
+the selected catalog entry; approved build payloads carry `product_id` directly.
+Provider retry state retains the original selection. Existing Vea configuration
+and alternate variants continue to derive scope from that campaign record.
+Confirmed proof quotes must also preserve full source claim boundaries,
+including their conditions, rather than merely matching a substring.
+
+Migration execution in production is a separate operator action. Deploy/restart
+the core API and Milo worker together after the migration has been applied:
+
+```powershell
+docker compose --env-file web/.env.local up -d --build api
+docker compose --env-file web/.env.local --profile workers up -d --build milo-worker
+```
+
+Starting the worker enables configured provider work; do not start it during
+offline verification. The focused SQL lane uses only a disposable loopback
+database. No renderer/media storage migration is part of this service change.
 
 From the repository root in PowerShell:
 

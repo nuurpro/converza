@@ -20,6 +20,8 @@ class GenerationScopeTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.store = MiloStore(InMemoryRepository())
+        self.store.repo.brand_products = [{'id': product, 'org_id': 'org'}
+                                          for product in ('selected', 'reserved')]
 
     async def leased(self, **scope):
         await self.store.enqueue('org', 'manual', **scope)

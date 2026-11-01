@@ -30,6 +30,7 @@ class MiloPostgresTests(unittest.TestCase):
                 q.execute((base / '007_sleyz_inbound.sql').read_text())
             q.execute((base / '008_milo_campaigns.sql').read_text())
             q.execute((base / '010_consolidation.sql').read_text())
+            q.execute((base / '013_milo_scope.sql').read_text())
 
     def setUp(self):
         self.org = str(uuid.uuid4())
@@ -126,6 +127,7 @@ class MiloPostgresTests(unittest.TestCase):
                 self.assertEqual(q.fetchone()[0], role == 'service_role')
             q.execute((Path(__file__).resolve().parents[1] / 'migrations/008_milo_campaigns.sql').read_text())
             q.execute((Path(__file__).resolve().parents[1] / 'migrations/010_consolidation.sql').read_text())
+            q.execute((Path(__file__).resolve().parents[1] / 'migrations/013_milo_scope.sql').read_text())
         self.assertEqual(len(self.run_async(self.store.jobs(self.org))), 1)
 
     def test_daily_limit_and_manual_idempotency_conflict(self):

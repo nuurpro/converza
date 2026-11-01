@@ -74,17 +74,22 @@ def source_claim_spans(text: str) -> list[list[int]]:
         r'(?:except|unless|but|however|provided|only|not|excluding|ammo|faqat|agar|lekin|biroq|istisno|'
         r'\u043a\u0440\u043e\u043c\u0435|\u043e\u0434\u043d\u0430\u043a\u043e|\u043d\u043e|'
         r'\u0442\u043e\u043b\u044c\u043a\u043e|\u0435\u0441\u043b\u0438|\u0437\u0430 \u0438\u0441\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435\u043c)\b', re.I)
+    decoration = re.compile(r'''(?:(?:[-*+>#`_"'(\[]+|\d+[.)])\s*)+''')
     for boundary in re.finditer(r'[.!?]+(?=\s|$)|\n|$', text):
         end = boundary.end()
         fragment = text[start:boundary.start()].rstrip()
         if boundary.group() in ('.', '\n') and abbreviation.search(fragment.rstrip('.')):
             continue
         next_start = nonspace.search(text, end)
-        following = text[next_start.start():next_start.start()+80] if next_start else ''
+        # Lists, quotes and emphasis do not make a condition a separate promise.
+        following_start = next_start.start() if next_start else len(text)
+        markup = decoration.match(text, following_start)
+        if markup:
+            following_start = markup.end()
         # Wrapped clauses and explicit qualifications belong to the preceding claim.
-        if following and (fragment.endswith((',', ':', ';'))
-                          or qualification.match(following)
-                          or following[0].islower()):
+        if following_start < len(text) and (fragment.endswith((',', ':', ';'))
+                                            or qualification.match(text, following_start)
+                                            or text[following_start].islower()):
             continue
         left = start + len(text[start:end]) - len(text[start:end].lstrip())
         right = end - len(text[start:end]) + len(text[start:end].rstrip())
@@ -113,6 +118,16 @@ def _content_projection(text: str, redact) -> tuple[str, list[list[int]]]:
     return ''.join(parts), spans
 
 
+def is_complete_claim_quote(content: str, quote: str) -> bool:
+    """An extract may contain several units, but cannot stop before a qualification."""
+    if not quote:
+        return False
+    spans = source_claim_spans(content)
+    ends = {end for _, end in spans}
+    return any(start + len(quote) in ends and content[start:start + len(quote)] == quote
+               for start, _ in spans)
+
+
 def _safe_metadata(metadata: dict) -> dict:
     result = {}
     if metadata.get('status') in ('PUBLISHED', 'DRAFT', 'FAILED'):
@@ -131,8 +146,10 @@ def _safe_metadata(metadata: dict) -> dict:
     return result
 
 
-def _safe_atoms(atoms: list[dict]) -> list[dict]:
+def _safe_atoms(atoms: list[dict], content: str, citation_spans: list[list[int]]) -> list[dict]:
     result = []
+    claims = {(start, end, content[left:right]) for left, right, start, end in citation_spans}
+    projected_claims = {content[start:end] for start, end in source_claim_spans(content)}
     for atom in atoms:
         safe = {}
         for key in ('kind', 'text', 'answer', 'objection', 'source_id', 'timestamp', 'resolved_at'):
@@ -146,6 +163,18 @@ def _safe_atoms(atoms: list[dict]) -> list[dict]:
             safe['source_revision'] = atom['source_revision']
         if atom.get('quote_redacted'):
             safe['quote_redacted'] = True
+        for key, span_key in (('text', 'span'), ('answer', 'answer_span'), ('objection', 'objection_span')):
+            if key not in safe:
+                continue
+            span = safe.get(span_key)
+            valid = (any(quote == safe[key] for _, _, quote in claims) if span is None
+                     else (span[0], span[1], safe[key]) in claims)
+            if atom.get('quote_redacted') and safe[key] in projected_claims:
+                valid = True
+            if not valid:
+                # Keep array indexes/provenance stable, but never expose a partial quote.
+                safe[key] = ''
+                safe['quote_redacted'] = True
         result.append(safe)
     return result
 
@@ -218,11 +247,15 @@ def rank_sources(rows: list[dict], query: str, *, org_id: str, limit: int = 8,
         projected.update(content=content[:end], citation_spans=[span for span in spans if span[1] <= end])
         summary = str(item.get('summary') or '')
         for _, end in source_claim_spans(summary):
+            # Summaries aid lexical discovery; only source-exact complete claims
+            # are also safe to present as factual context to downstream agents.
+            if not is_complete_claim_quote(content, summary[:end]):
+                continue
             candidate = dict(projected, summary=summary[:end])
             if _json_size(result + [candidate]) > budget:
                 break
             projected = candidate
-        atoms = _safe_atoms(item.get('atoms') or [])
+        atoms = _safe_atoms(item.get('atoms') or [], projected['content'], projected['citation_spans'])
         candidate = dict(projected, atoms=atoms)
         # Keep the whole array or none so atom indexes never change.
         if _json_size(result + [candidate]) <= budget:

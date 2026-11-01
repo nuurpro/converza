@@ -17,6 +17,7 @@ from .store import MiloStore
 class CampaignRequest(Contract):
     prompt: str = Field(default='', max_length=8000)
     language: Literal['en','ru','uz'] | None = None
+    product_id: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class ScriptDecision(Contract):
@@ -58,7 +59,8 @@ def create_milo_router(get_repo, authenticate, assert_owner):
     @router.post('/campaigns',status_code=202)
     async def generate(org_id: str,body: CampaignRequest,idempotency_key: str=Header(min_length=1,max_length=200),auth=Depends(authenticate)):
         repo=await scoped(org_id,auth)
-        return await invoke(MiloStore(repo).enqueue(org_id,'manual',prompt=body.prompt,language=body.language,key='manual:'+idempotency_key))
+        return await invoke(MiloStore(repo).enqueue(org_id,'manual',prompt=body.prompt,language=body.language,
+            product_id=body.product_id,key='manual:'+idempotency_key))
 
     @router.get('/campaigns/{campaign_id}')
     async def campaign(org_id: str,campaign_id: str,auth=Depends(authenticate)):

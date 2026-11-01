@@ -17,6 +17,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [gateState, setGateState] = useState<"checking" | "allowed" | "blocked">("checking");
   const [gateError, setGateError] = useState("");
+  const [retry, setRetry] = useState(0);
   const pathname = usePathname();
   const router = useRouter();
   const session=useSyncExternalStore(subscribeSession,getWorkspaceSession,getWorkspaceSession);
@@ -26,15 +27,16 @@ export default function MainLayout({ children }: MainLayoutProps) {
   useEffect(() => {
     let cancelled = false;
     let attempt = 0;
-    async function checkAccess() {
+    async function checkAccess(keepMounted = false) {
       const current=++attempt;
-      setGateState("checking");
+      if (!keepMounted) setGateState("checking");
       setGateError("");
       try {
         await restoreWorkspaceSession();
         if (!cancelled && current===attempt) setGateState("allowed");
       } catch (error) {
         if (!cancelled && current===attempt) {
+          resetWorkspaceSession();
           const message = error instanceof Error ? error.message : "Could not verify workspace access.";
           if (message === 'Sign in required' || message === 'Invalid user session') {
             router.replace("/landing");
@@ -52,9 +54,10 @@ export default function MainLayout({ children }: MainLayoutProps) {
       if(event==='SIGNED_OUT'){
         attempt++;resetWorkspaceSession();setGateState('blocked');router.replace('/landing');
       }else if(event==='SIGNED_IN'||event==='TOKEN_REFRESHED'||event==='INITIAL_SESSION'){
-        if(getWorkspaceSession().user?.id!==next?.user.id)resetWorkspaceSession();
+        const sameOwner=Boolean(next?.user.id&&getWorkspaceSession().user?.id===next.user.id);
+        if(!sameOwner){resetWorkspaceSession();setGateState('checking');}
         // Supabase invokes listeners while holding its auth lock.
-        setTimeout(()=>{if(!cancelled)void checkAccess();},0);
+        setTimeout(()=>{if(!cancelled)void checkAccess(sameOwner);},0);
       }
     });
 
@@ -62,12 +65,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
       cancelled = true;
       attempt++;listener?.data.subscription.unsubscribe();resetWorkspaceSession();
     };
-  }, [router]);
+  }, [router, retry]);
 
   useEffect(()=>{
-    if(!isPublicRoute && session.user){
+    if(session.user && (!isPublicRoute || (pathname?.startsWith('/onboarding') && session.passport?.onboarding_completed_at))){
       const destination=getDashboardGateDestination(session.user.id,session.passport);
-      if(destination!=='allow')router.replace(destination);
+      const target=destination==='allow'?'/':destination;
+      if((!isPublicRoute && destination!=='allow') || (isPublicRoute && target!==pathname && (destination==='allow'||pathname==='/onboarding')))router.replace(target);
     }
   },[isPublicRoute,pathname,session,router]);
 
@@ -76,7 +80,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     return <>{children}</>;
   }
 
-  if(pathname?.startsWith('/onboarding')&&session.user)return <div key={session.user.id}>{children}</div>;
+  if(pathname?.startsWith('/onboarding')&&session.user&&gateState==='allowed')return <div key={session.user.id}>{children}</div>;
 
   if (gateState === "checking" || (gateState==='allowed'&&!session.user)) {
     return (
@@ -92,6 +96,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
         {gateError ? (
           <div className="max-w-md rounded-2xl border border-border bg-bg-elevated p-5 text-[13px] leading-relaxed">
             {gateError}
+            <button type="button" onClick={()=>setRetry(value=>value+1)} className="mt-3 block rounded-lg border border-border px-4 py-3 text-text-primary">Retry</button>
           </div>
         ) : null}
       </div>

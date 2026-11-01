@@ -16,6 +16,7 @@ async def run():
     cases=[]
     for language,text in [('en','This bag has reinforced stitching.'),('ru','У этой сумки усиленные швы.'),('uz','Bu sumkaning choklari mustahkamlangan.')]:
         repo=InMemoryRepository();repo.seed_brand_passport('brand',{'revision':1,'hex_colors':['#223344']})
+        repo.brand_products = [{'id':'bag','org_id':'brand','name':'Approved bag initiative'}]
         milo=MiloStore(repo);vea=VeaStore(repo)
         campaign=await milo.enqueue('brand','manual',language=language,key='campaign')
         script=[{'spoken_narration':text,'visual_broll_cues':'Product stitching','on_screen_text':text}]

@@ -21,7 +21,7 @@ export const saveMiloSettings=(orgId:string,settings:MiloSettings)=>miloRequest<
 export const fetchMiloBrand=(orgId:string)=>miloRequest<MiloBrand>(orgId,'/brand');
 export const saveMiloBrand=(orgId:string,brand:MiloBrand)=>miloRequest<MiloBrand>(orgId,'/brand',{method:'PUT',body:JSON.stringify(brand)});
 export const fetchMiloSources=(orgId:string)=>miloRequest<{sources:MiloSource[]}>(orgId,'/proof-sources');
-export const createMiloCampaign=(orgId:string,prompt:string,language:string,key:string)=>miloRequest<MiloCampaign>(orgId,'/campaigns',{method:'POST',headers:{'Idempotency-Key':key},body:JSON.stringify({prompt,...(language?{language}:{})})});
+export const createMiloCampaign=(orgId:string,prompt:string,language:string,key:string,productId?:string)=>miloRequest<MiloCampaign>(orgId,'/campaigns',{method:'POST',headers:{'Idempotency-Key':key},body:JSON.stringify({prompt,...(language?{language}:{}),...(productId?{product_id:productId}:{})})});
 export function decideMiloScript(orgId:string,campaign:MiloCampaign,action:'edit'|'approve'|'reject',key:string,scenes?:MiloScene[]){
  const request=scriptDecisionRequest(orgId,campaign,action,key,scenes);
  return miloRequest<MiloCampaign>(orgId,request.path.slice(`/api/milo/${encodeURIComponent(orgId)}`.length),request.init);

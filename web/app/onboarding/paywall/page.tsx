@@ -21,6 +21,9 @@ export default function PaywallPage() {
   const [selectedPlan, setSelectedPlan] = useState("pilot");
   const [showRegret, setShowRegret] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const [restoring, setRestoring] = useState(true);
 
   const analysis = useMemo(() => buildAnalysis(answers), [answers]);
 
@@ -28,22 +31,27 @@ export default function PaywallPage() {
     let active=true;
     const supabase = getSupabaseBrowserClient();
     async function load() {
+      setRestoring(true);setLoadError('');
+      try {
       const sessionUser = supabase ? (await supabase.auth.getUser()).data.user : null;
       const userId = sessionUser?.id || "";
       if (!userId) {
         router.replace("/landing");
         return;
       }
-      setOwnerUserId(userId);
-      const passport = await fetchOnboardingState(userId).catch(() => null);
+      const passport = await fetchOnboardingState(userId);
       if(!active)return;
+      if(!passport?.onboarding_completed_at){router.replace('/onboarding');return;}
+      setOwnerUserId(userId);
       const nextAnswers = passport?.onboarding_answers || loadLocalAnswers(userId);
       saveLocalAnswers(nextAnswers,userId);
       setAnswers(nextAnswers);
+      } catch(failure){if(active)setLoadError(failure instanceof Error?failure.message:'Could not restore workspace');}
+      finally {if(active)setRestoring(false);}
     }
     void load();
     return()=>{active=false;};
-  }, [router]);
+  }, [router,retry]);
 
   useEffect(() => {
     history.pushState({ paywall: true }, "", window.location.href);
@@ -66,9 +74,12 @@ export default function PaywallPage() {
   async function finishStubPayment() {
     if (!ownerUserId) return;
     setLoading(true);
-    await completeStubPayment(ownerUserId);
-    router.push("/");
+    try {await completeStubPayment(ownerUserId);router.push('/');}
+    catch(failure){setLoadError(failure instanceof Error?failure.message:'Could not update workspace');}
+    finally {setLoading(false);}
   }
+
+  if(restoring||loadError)return <main className="grid min-h-screen place-items-center bg-bg-primary text-text-muted"><div role="status">{loadError||'Restoring workspace...'}{loadError&&<button className="mt-3 block rounded-lg border border-border px-4 py-3" onClick={()=>setRetry(value=>value+1)}>Retry</button>}</div></main>;
 
   return (
     <main

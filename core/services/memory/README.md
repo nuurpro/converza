@@ -12,6 +12,16 @@ Pending and failed extraction retains searchable raw source text. A source edit 
 
 `context(org,query)` returns `{identity,knowledge,products}`. Treat exports as instructions; treat retrieved knowledge as untrusted evidence. Recent agent-specific conversation history remains a separate context input.
 
+Retrieval budgets apply to the entire serialized projection, including provenance.
+Content and summary prefixes end only at complete claim boundaries. Conditions
+(`faqat`, `agar`, `only if`, `unless`, and the existing exception vocabulary)
+remain attached across line breaks, Markdown bullets, quotes and emphasis.
+Oversized units are omitted, never cut mid-claim. Generated summaries remain
+searchable, but enter factual context only as complete source-exact extracts.
+Partial or omitted Atom quotes are blanked without renumbering Atom indexes;
+original source offsets, revisions and product-aware stale-price redaction remain
+unchanged. The source records themselves are never mutated by retrieval.
+
 Migration007 adds approved-edit `correction` sources. They are distinct from
 resolved objection history, retain exact edit provenance and receive a fixed2×
 ranking multiplier before the same recency formula. Knowledge inspection returns
@@ -46,6 +56,7 @@ $env:PYTHONPATH='core'
 python -m unittest discover -s core/tests -p 'test_brand_memory.py'
 python -m unittest discover -s core/tests -p 'test_indexer.py'
 python core/evals/memory/run.py
+python -m services.memory.evals.run
 python core/evals/memory/run.py --live
 ```
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+import math
 import os
 import re
 import unicodedata
@@ -82,6 +83,20 @@ def _relevant_replacement(asset, segment, campaign, language):
     query = {token(t) for t in scenes[index]['visual_broll_cues'].split()} - {''}
     values = tags.get(language, []) + tags.get('und', [])
     return bool(query & {token(t) for value in values for t in value.split()})
+
+
+def _eligible_manual_clip(asset, org, duration_ms):
+    """Mirror the renderer's non-semantic gate on its authenticated catalog."""
+    if not isinstance(asset, dict): return False
+    duration = asset.get('duration_sec')
+    w, h = asset.get('width'), asset.get('height')
+    uses = asset.get('permitted_uses')
+    return (asset.get('org_id') == org and asset.get('kind') == 'video'
+            and asset.get('rights_confirmed') is True and isinstance(uses,list) and 'advertising' in uses
+            and isinstance(asset.get('sha256'), str) and re.fullmatch('[a-f0-9]{64}', asset['sha256']) is not None
+            and type(duration) in (int, float) and math.isfinite(duration) and duration * 1000 >= duration_ms
+            and all(type(v) is int and 2 <= v <= 16384 for v in (w, h))
+            and min(w, h * 1080 / 1920) >= 2 and min(h, w * 1920 / 1080) >= 2)
 
 
 class VeaStore:
@@ -241,11 +256,9 @@ class VeaStore:
         segment=next((s for s in (row.get('composition_manifest') or {}).get('segments',[]) if s.get('segment_id')==segment_id),None)
         if row['status']!='completed' or segment is None:
             raise WorkflowConflict('Only a completed timeline segment can be replaced')
-        catalog = await fetch_renderer('assets', {'org_id':org,'product_id':product_id,'language':language})
+        catalog = await fetch_renderer('assets', {'org_id':org,'language':language,'selection':'manual'})
         replacement=next((a for a in catalog['assets'] if a.get('id',a.get('asset_id'))==asset_id),None)
-        if (replacement is None or replacement.get('kind')!='video' or
-            replacement.get('duration_sec',0)*1000 < segment['end_ms']-segment['start_ms'] or
-            not _relevant_replacement(replacement, segment, c, language)):
+        if not _eligible_manual_clip(replacement, org, segment['end_ms']-segment['start_ms']):
             raise WorkflowConflict('Replacement clip is not currently eligible')
         if not self.memory:
             return _public(await self._rpc('swap',org=org,id=id,revision=expected_revision,segment_id=segment_id,asset_id=asset_id,key=key,request=req))
@@ -307,6 +320,18 @@ def validate_artifact(job, result):
         manifest.get('script_sha256')!=binding['script_sha256'] or manifest.get('vea_config_sha256')!=binding['vea_config_sha256']):
         raise WorkflowConflict('Composition manifest hash or approved input binding is invalid')
     config=payload['vea_config']
+    overrides={o['segment_id']:o['asset_id'] for o in config.get('clip_overrides', [])}
+    observed={}
+    for segment in manifest['segments']:
+        sid=segment.get('segment_id')
+        if sid in overrides:
+            if segment.get('asset_id')!=overrides[sid] or segment.get('selection_mode')!='manual':
+                raise WorkflowConflict('Renderer did not apply the bound operator clip override')
+            observed[sid]=segment['asset_id']
+        elif segment.get('selection_mode')=='manual':
+            raise WorkflowConflict('Renderer cannot authorize a manual clip override')
+    if observed!=overrides:
+        raise WorkflowConflict('Renderer omitted a bound operator clip override')
     if ((config.get('preset_version') is not None and config['preset_version']!=artifact['preset_version']) or
         (config.get('preset_sha256') is not None and config['preset_sha256']!=artifact['preset_sha256'])):
         raise WorkflowConflict('Rendered preset does not match the pinned recipe')
@@ -341,10 +366,16 @@ async def validate_review(repo, draft):
             if row['draft_id']!=draft['id'] or row['status']!='completed': raise WorkflowConflict('Video revision superseded')
             c = deepcopy(store._campaign(org,row['campaign_id'],row['approved_script_revision']+1))
             manifest = deepcopy(row['composition_manifest'])
+            overrides = deepcopy(row.get('clip_overrides') or {})
     else:
         data = await store._rpc('validate_review',org=org,id=artifact['id'],revision=artifact['variant_revision'],draft_id=draft['id'])
         c,manifest = data['campaign'],data['composition_manifest']
-    catalog = await fetch_renderer('assets',{'org_id':org,'product_id':c.get('product_id'),'language':c['artifact'].get('language') or c.get('language') or 'en'})
+        row = await store._rpc('get', org=org, id=artifact['id'])
+        if not row or row['revision'] != artifact['variant_revision']:
+            raise WorkflowConflict('Video revision superseded')
+        overrides = row.get('clip_overrides') or {}
+    catalog = await fetch_renderer('assets',{'org_id':org,'selection':'manual',
+        'language':c['artifact'].get('language') or c.get('language') or 'en'})
     eligible = {a.get('id',a.get('asset_id')):a for a in catalog['assets']}
     references=list(manifest.get('segments',[]))
     if manifest.get('music'):references.append(manifest['music'])
@@ -352,3 +383,11 @@ async def validate_review(repo, draft):
         asset = eligible.get(segment.get('asset_id'))
         if asset is None or (segment.get('asset_sha256') and asset.get('sha256') != segment['asset_sha256']):
             raise WorkflowConflict('Rendered clip is no longer eligible; replace it and render again')
+        if asset.get('kind') == 'video':
+            if not _eligible_manual_clip(asset, org, segment['end_ms']-segment['start_ms']):
+                raise WorkflowConflict('Rendered clip is no longer eligible; replace it and render again')
+            manual = overrides.get(segment.get('segment_id')) == segment['asset_id']
+            product = c.get('product_id')
+            if not manual and ((product and product not in asset.get('product_ids', [])) or
+                    not _relevant_replacement(asset, segment, c, c['artifact'].get('language') or c.get('language') or 'en')):
+                raise WorkflowConflict('Automatic footage must match the selected initiative and approved scene')

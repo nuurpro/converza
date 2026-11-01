@@ -21,7 +21,10 @@ async function proxy(request: NextRequest, context: RouteContext) {
         const data = JSON.parse(body);
         if (data.owner_user_id !== user.id) throw new GatewayError(403, 'Cannot access another owner');
         const passport = await readPassport(user.id, token, request);
-        data.org_id = passport?.org_id ?? (path[2] === 'passport' ? crypto.randomUUID() : undefined);
+        // Only the database transaction may create a genuinely new organization.
+        if (passport) data.org_id = passport.org_id;
+        else if (data.org_id) throw new GatewayError(409, 'Workspace ownership could not be restored');
+        else delete data.org_id;
         body = JSON.stringify(data);
       }
     }

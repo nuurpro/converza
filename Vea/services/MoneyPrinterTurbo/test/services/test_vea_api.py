@@ -77,6 +77,40 @@ class VeaApiTests(unittest.TestCase):
         self.assertEqual(preview.status_code, 200); self.assertEqual(preview.headers['content-type'], 'image/jpeg')
         self.assertEqual(self.client.get(f'/tasks/{task_id}/composition.json').status_code, 404)
 
+        # An explicit off-tag, cross-initiative operator override renders via the
+        # same bound API; automatic matching must still refuse this footage.
+        vea.run_media(['-f','lavfi','-i','testsrc2=s=320x180:r=30:d=2',
+                       '-c:v','libx264','-pix_fmt','yuv420p',root/'wide.mp4'])
+        wide={**asset,'id':'wide','path':'wide.mp4','width':320,'height':180,
+              'sha256':vea.file_hash(root/'wide.mp4'),'product_ids':['other-initiative'],'tags':{}}
+        (root/'catalog.json').write_text(json.dumps({'schema_version':1,'assets':[asset,wide]}))
+        payload['vea_config'].update(variant_revision=2,reuse_manifest=receipt['composition_manifest'],
+            clip_overrides=[{'segment_id':receipt['composition_manifest']['segments'][0]['segment_id'],'asset_id':'wide'}])
+        payload['milo_binding'].update(job_id='manual-swap',vea_config_sha256=vea.content_hash(payload['vea_config']))
+        with patch.dict(os.environ,{'VEA_ASSET_ROOT':str(root)}):
+            manual=self.client.get('/api/v1/vea/assets?org_id=org&selection=manual').json()['data']['assets']
+            self.assertEqual({a['id'] for a in manual},{'clip','wide'})
+            with patch.object(task_manager,'add_task') as queue:
+                response=self.client.post('/api/v1/videos',json=payload)
+            self.assertEqual(response.status_code,200,response.text)
+            with patch.object(vea,'reuse_narration',return_value=speech), patch.object(vea,'extract_word_timestamps',return_value=alignment):
+                queue.call_args.args[0](**queue.call_args.kwargs)
+        swapped=self.client.get('/api/v1/tasks/'+response.json()['data']['task_id']).json()['data']
+        self.assertEqual(swapped['state'],1,swapped)
+        segment=swapped['composition_manifest']['segments'][0]
+        self.assertEqual((segment['asset_id'],segment['selection_mode']),('wide','manual'))
+        self.assertEqual(segment['crop']['mode'],'center_crop_no_stretch')
+
+    def test_new_upstream_generation_providers_stay_disabled(self):
+        from test.services.test_milo_api import MiloProviderApiTests
+        from app.controllers.v1.video import task_manager
+        payload=MiloProviderApiTests().payload()
+        for source in ('openai_image','muapi','ofox','volcengine_seedance','loomloom'):
+            payload['video_source']=source
+            with self.subTest(source=source),patch.object(task_manager,'add_task') as queue:
+                self.assertEqual(self.client.post('/api/v1/videos',json=payload).status_code,400)
+                queue.assert_not_called()
+
     def test_failed_vea_receipt_records_actionable_safe_failure(self):
         from app.services import task, vea
         from app.models.schema import TaskVideoRequest

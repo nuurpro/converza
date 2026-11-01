@@ -4,13 +4,26 @@ export class GatewayError extends Error {
 
 export function assertSameOrigin(request: Request) {
   const origin = request.headers.get('origin');
-  if ((origin && origin !== new URL(request.url).origin) || request.headers.get('sec-fetch-site') === 'cross-site') {
+  const configured = process.env.WEB_PUBLIC_ORIGIN;
+  let expected = new URL(request.url).origin;
+  if (configured) {
+    let url: URL;
+    try { url = new URL(configured); } catch { throw new GatewayError(503, 'Invalid public origin configuration'); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+      throw new GatewayError(503, 'Invalid public origin configuration');
+    }
+    expected = url.origin;
+  } else if (process.env.NODE_ENV === 'production') {
+    throw new GatewayError(503, 'Public origin is not configured');
+  }
+  if ((origin && origin !== expected) || request.headers.get('sec-fetch-site') === 'cross-site') {
     throw new GatewayError(403, 'Cross-origin request denied');
   }
 }
 
 const id = '[A-Za-z0-9_-]+';
 const routes: [string, RegExp][] = [
+  ['GET', /^api\/feed\/pending$/],
   ['GET', new RegExp(`^api/onboarding/state/${id}$`)],
   ['POST', /^api\/onboarding\/(passport|complete|stub-payment)$/],
   ['POST', /^api\/agent\/(milo|sleyz)\/message$/],

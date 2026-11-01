@@ -1,5 +1,12 @@
 # VEA variants
 
+The v1.3.9 upgrade and preservation gates are documented in
+`Vea/services/MoneyPrinterTurbo/UPGRADE.v1.3.9.md`. The operator clip catalog now
+includes all eligible same-tenant footage, even other initiatives or off-tag clips.
+Only explicit persisted swaps bypass relevance; automatic selected-initiative
+footage must match an explicit product assignment. Safe center cropping is allowed,
+stretching is not. A swap still invalidates approval and needs fresh review.
+
 VEA preserves approved Milo narration and renders deterministic vertical recipes.
 Its measurable outcome is a reviewable preview for each approved source, with
 no duplicate provider submission and traceable source/configuration hashes.

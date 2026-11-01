@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from services.vea.store import VeaStore, prepare_build
 from services.workflow.state import WorkflowConflict
 import test_vea_postgres as vea_tests
+from test_vea_storage import catalog_asset
 
 
 @unittest.skipUnless(os.getenv('CONVERZA_WORKFLOW_TEST_DSN'), 'requires isolated PostgreSQL test database')
@@ -21,6 +22,7 @@ class ConsolidationPostgresTests(unittest.TestCase):
         if migration.exists():
             with cls.client.connect() as conn, conn.cursor() as q:
                 q.execute(migration.read_text(encoding='utf-8'))
+                q.execute((migration.parent / '013_milo_scope.sql').read_text(encoding='utf-8'))
 
     setUp = vea_tests.VeaPostgresTests.setUp
     tearDown = vea_tests.VeaPostgresTests.tearDown
@@ -28,45 +30,51 @@ class ConsolidationPostgresTests(unittest.TestCase):
     run_async = vea_tests.VeaPostgresTests.run_async
     result = vea_tests.VeaPostgresTests.result
 
+    def product(self):
+        return self.client.table('brand_products').insert({'org_id': self.org,
+            'name': 'Selected initiative'}).execute().data[0]['id']
+
     def test_manual_selected_product_reaches_default_and_alternate_builds(self):
         template = self.ready()
         campaign = self.run_async(self.store.enqueue(self.org, 'manual', key='scope'))
         job = self.run_async(self.store.claim('generate'))[0]
-        scope = {'product_id': 'selected-product', 'topic': 'durability'}
+        product = self.product()
+        scope = {'product_id': product, 'topic': 'durability'}
         current = self.run_async(self.store.complete_generation(job, template['artifact'], template['compliance'], selected_scope=scope))
-        self.assertEqual((current['product_id'], current['topic']), ('selected-product', 'durability'))
+        self.assertEqual((current['product_id'], current['topic']), (product, 'durability'))
         self.assertEqual(self.run_async(self.store.enqueue(self.org, 'manual', key='scope')), current)
         approved = self.run_async(self.store.decide_script(self.org, campaign['id'], 'approve', current['revision'], 'approve-scope'))
         replay = self.run_async(self.store.decide_script(self.org, campaign['id'], 'approve', current['revision'], 'approve-scope'))
         self.assertEqual(approved, replay)
         job = self.run_async(prepare_build(self.run_async(self.store.claim('build'))[0], self.store))
-        self.assertEqual(job['payload']['vea_config']['product_id'], 'selected-product')
+        self.assertEqual(job['payload']['vea_config']['product_id'], product)
         vea = VeaStore(self.repo)
         default = self.run_async(vea.list_variants(self.org))[0]
-        self.assertEqual(default['product_id'], 'selected-product')
+        self.assertEqual(default['product_id'], product)
         self.run_async(self.store.complete_build(job, self.result(approved, default)))
         catalog = AsyncMock(return_value={'assets': [
-            {'id': 'replacement', 'kind': 'video', 'duration_sec': 3, 'tags': {'en': ['Close up']}}]})
+            catalog_asset(self.org)]})
         with patch('services.vea.store.fetch_renderer', catalog):
             self.run_async(vea.swap(self.org, default['id'], 1, 'scene-0-cut-0', 'replacement', 'scope-swap'))
-        catalog.assert_awaited_once_with('assets', {'org_id': self.org, 'product_id': 'selected-product', 'language': 'en'})
+        catalog.assert_awaited_once_with('assets', {'org_id': self.org, 'selection':'manual', 'language': 'en'})
         variant = self.run_async(vea.create_variant(self.org, campaign['id'], approved['revision'], 'editorial_showcase', 'alternate'))
-        self.assertEqual(variant['product_id'], 'selected-product')
+        self.assertEqual(variant['product_id'], product)
         queued = next(j for j in self.run_async(self.store.jobs(self.org)) if j['id'] == variant['job_id'])
-        self.assertEqual(queued['payload']['vea_config']['product_id'], 'selected-product')
+        self.assertEqual(queued['payload']['vea_config']['product_id'], product)
         with self.assertRaises(WorkflowConflict):
             self.run_async(self.store.complete_generation(job, {}, {}, selected_scope=scope))
 
     def test_scope_conflict_is_atomic_and_sql_does_not_infer_from_copy(self):
-        self.run_async(self.store.enqueue(self.org, 'manual', topic='durability', product_id='reserved'))
+        product = self.product()
+        self.run_async(self.store.enqueue(self.org, 'manual', topic='durability', product_id=product))
         job = self.run_async(self.store.claim('generate'))[0]
-        for scope in ({'product_id': 'different', 'topic': 'durability'}, {'product_id': 'reserved', 'topic': 'price'}):
+        for scope in ({'product_id': product, 'topic': 'price'}, {'product_id': 'different', 'topic': 'durability'}):
             with self.subTest(scope=scope), self.assertRaises(WorkflowConflict):
                 self.run_async(self.store.complete_generation(job, {}, {}, selected_scope=scope))
             campaign = self.run_async(self.store.get_campaign(self.org, job['campaign_id']))
-            self.assertEqual((campaign['revision'], campaign['product_id'], campaign['topic']), (1, 'reserved', 'durability'))
+            self.assertEqual((campaign['revision'], campaign['product_id'], campaign['topic']), (1, product, 'durability'))
         current = self.run_async(self.store.complete_generation(job, {'product_id': 'model-guess'}, {'passed': False}))
-        self.assertEqual(current['product_id'], 'reserved')
+        self.assertEqual(current['product_id'], product)
 
     def test_generated_rpc_rejects_malformed_scope_before_any_write(self):
         self.run_async(self.store.enqueue(self.org, 'manual'))
@@ -82,7 +90,7 @@ class ConsolidationPostgresTests(unittest.TestCase):
         self.assertEqual((current['product_id'], current['topic']), (None, 'trust'))
 
     def test_migration_reapply_preserves_service_only_permissions(self):
-        migration = Path(__file__).resolve().parents[1] / 'migrations/010_consolidation.sql'
+        migration = Path(__file__).resolve().parents[1] / 'migrations/013_milo_scope.sql'
         self.assertTrue(migration.exists())
         with self.client.connect() as conn, conn.cursor() as q:
             q.execute(migration.read_text(encoding='utf-8'))

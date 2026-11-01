@@ -4,6 +4,7 @@ import {useEffect,useRef,useState,type FormEvent} from 'react';
 import {campaignCapabilities,keepScriptEditor,type MiloCampaign,type MiloJob,type MiloScene,type MiloSettings,type ScriptEditor} from '@/lib/data/milo';
 import {createMiloCampaign,decideMiloScript,fetchMiloCampaigns,fetchMiloJobs,fetchMiloSettings,retryMiloJob,reconcileMiloJob,saveMiloSettings} from '@/lib/api/milo';
 import {useMiloOrg} from '@/lib/hooks/useMiloOrg';
+import {memoryRequest,type ProductRecord} from '@/lib/api/memory';
 
 const input='mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-xs';
 const button='rounded-full border border-border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50';
@@ -17,7 +18,9 @@ function CampaignWorkspace({org}:{org:string}){
  const [campaigns,setCampaigns]=useState<MiloCampaign[]>([]),[jobs,setJobs]=useState<MiloJob[]>([]);
  const [prompt,setPrompt]=useState(''),[language,setLanguage]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
  const [loaded,setLoaded]=useState(false);
+ const [products,setProducts]=useState<ProductRecord[]>([]),[productId,setProductId]=useState(''),[catalogError,setCatalogError]=useState(''),[catalogLoading,setCatalogLoading]=useState(true);
  const keys=useRef(new Map<string,string>()),alive=useRef(true),sequence=useRef(0),actionLock=useRef(false);
+ const catalogSequence=useRef(0);
  function keyFor(signature:string){let key=keys.current.get(signature);if(!key){key=crypto.randomUUID();keys.current.set(signature,key);}return key;}
  async function refresh(){
   const request=++sequence.current;
@@ -26,13 +29,21 @@ function CampaignWorkspace({org}:{org:string}){
   }catch(failure){if(alive.current)setError(failure instanceof Error?failure.message:'Campaign refresh failed');}
  }
  useEffect(()=>{alive.current=true;void refresh();const timer=setInterval(()=>void refresh(),5000);return()=>{alive.current=false;clearInterval(timer);};},[org]); // eslint-disable-line react-hooks/exhaustive-deps
+ async function loadCatalog(){
+  const request=++catalogSequence.current;setCatalogLoading(true);setCatalogError('');
+  try{const result=await memoryRequest<{products:ProductRecord[]}>('/products',undefined,org);
+   if(alive.current&&request===catalogSequence.current)setProducts(result.products);
+  }catch(failure){if(alive.current&&request===catalogSequence.current)setCatalogError(failure instanceof Error?failure.message:'Product catalog unavailable');}
+  finally{if(alive.current&&request===catalogSequence.current)setCatalogLoading(false);}
+ }
+ useEffect(()=>{void loadCatalog();return()=>{catalogSequence.current++;};},[org]); // eslint-disable-line react-hooks/exhaustive-deps
  async function perform<T,>(signature:string,work:(key:string)=>Promise<T>,message:string):Promise<T|null>{
   if(actionLock.current)return null;actionLock.current=true;setBusy(true);setError('');setNotice('');
   try{const result=await work(keyFor(signature));keys.current.delete(signature);if(alive.current){setNotice(message);await refresh();}return result;}
   catch(failure){if(alive.current){setError(failure instanceof Error?failure.message:'Milo action failed');await refresh();}return null;}
   finally{actionLock.current=false;if(alive.current)setBusy(false);}
  }
- function generate(event:FormEvent){event.preventDefault();void perform(JSON.stringify(['generate',prompt,language]),key=>createMiloCampaign(org,prompt,language,key),'Campaign queued. Milo is checking buyer evidence and brand proof.');}
+ function generate(event:FormEvent){event.preventDefault();void perform(JSON.stringify(['generate',org,prompt,language,productId||null]),key=>createMiloCampaign(org,prompt,language,key,productId||undefined),'Campaign queued. Milo is checking buyer evidence and brand proof.');}
  async function decide(campaign:MiloCampaign,action:'edit'|'approve'|'reject',scenes?:MiloScene[]){
   return perform(JSON.stringify([campaign.id,campaign.revision,action,scenes]),key=>decideMiloScript(org,campaign,action,key,scenes),action==='edit'?'Script saved for a new compliance check. Review it before approving.':action==='approve'?'Script approved. Vea build queued.':'Script rejected.');
  }
@@ -40,7 +51,10 @@ function CampaignWorkspace({org}:{org:string}){
   <div className="rounded-xl border border-border p-4"><h2 className="text-sm font-medium">Evidence-backed campaigns</h2><p className="mt-2 text-xs text-text-muted">Turn buyer objections into hooks, scripts and captions. Review each script before Vea builds the video.</p>
    <form onSubmit={generate} className="mt-3 space-y-3"><label className="block text-xs">Campaign direction<textarea className={input} rows={2} maxLength={8000} value={prompt} onChange={event=>setPrompt(event.target.value)} placeholder="Use recent durability objections for our everyday buyers."/></label>
     <div className="flex flex-wrap items-end gap-3"><label className="text-xs">Campaign language<select className={input} value={language} onChange={event=>setLanguage(event.target.value)}><option value="">Brand default</option>{languageOptions}</select></label>
+    <label className="w-full text-xs sm:w-60">Product or initiative<select aria-label="Product or initiative" className={input} value={productId} disabled={busy} onChange={event=>setProductId(event.target.value)}><option value="">Auto-select from buyer evidence</option>{products.map(product=><option key={product.id} value={product.id}>{product.name}</option>)}</select></label>
     <button disabled={busy} className={`${button} bg-black text-white`}>{busy?'Working…':'Generate campaign'}</button></div>
+    {catalogLoading&&<p role="status" className="text-xs text-text-muted">Loading initiatives…</p>}
+    {catalogError&&<div className="flex flex-wrap items-center gap-2 text-xs"><p role="alert" className="text-error">{catalogError}</p><button type="button" className={button} disabled={catalogLoading} onClick={()=>void loadCatalog()}>Retry catalog</button></div>}
    </form>
   </div>
   <MiloAutomation org={org}/>

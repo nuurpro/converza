@@ -85,10 +85,16 @@ def bootstrap(dsn):
             if not q.fetchone()[0]:
                 q.execute((CORE/'migrations/007_sleyz_inbound.sql').read_text())
             q.execute((CORE/'migrations/008_milo_campaigns.sql').read_text())
+            q.execute((CORE/'migrations/009_vea_variants.sql').read_text())
+            q.execute((CORE/'migrations/010_consolidation.sql').read_text())
             q.execute('''ALTER TABLE brand_passports ADD COLUMN IF NOT EXISTS tone text,
               ADD COLUMN IF NOT EXISTS industry text,ADD COLUMN IF NOT EXISTS core_offer text,
               ADD COLUMN IF NOT EXISTS target_audience text,ADD COLUMN IF NOT EXISTS target_location text,
               ADD COLUMN IF NOT EXISTS hex_colors text[];''')
+            q.execute('ALTER TABLE orgs ADD COLUMN IF NOT EXISTS name text, ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now()')
+            q.execute((CORE/'migrations/011_workspace_restore.sql').read_text())
+            q.execute((CORE/'migrations/012_pending_feed.sql').read_text())
+            q.execute((CORE/'migrations/013_milo_scope.sql').read_text())
             q.execute('INSERT INTO orgs(id) VALUES(%s) ON CONFLICT DO NOTHING',(ORG,))
             q.execute('INSERT INTO orgs(id) VALUES(%s) ON CONFLICT DO NOTHING',(ORG_B,))
             q.execute("INSERT INTO brand_passports(id,org_id,owner_user_id,brand_name,onboarding_completed_at,paywall_status) VALUES(%s,%s,%s,'Festival Studio',now(),'paid') ON CONFLICT DO NOTHING",(PASSPORT_B,ORG_B,OWNER_B))

@@ -3,12 +3,13 @@ WORKDIR /MoneyPrinterTurbo
 ENV PYTHONPATH=/MoneyPrinterTurbo \
     PYTHONDONTWRITEBYTECODE=1 \
     MPT_APPROVED_ONLY=1 \
+    MPT_HOME=/MoneyPrinterTurbo \
     IMAGEIO_FFMPEG_EXE=/usr/bin/ffmpeg
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
-COPY requirements.milo.txt ./
-RUN pip install --no-cache-dir -r requirements.milo.txt
+COPY requirements.milo.txt requirements.milo.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.milo.lock
 COPY app ./app
 COPY video_presets ./video_presets
 COPY main.py config.example.toml LICENSE ./

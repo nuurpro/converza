@@ -3,6 +3,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 
 from starlette.concurrency import run_in_threadpool
+from services.memory import is_complete_claim_quote
 
 from .contracts import BrandConfig, Persona
 
@@ -43,7 +44,7 @@ def valid_proof_points(context):
         source = sources.get(point.get('source_id'))
         if (source and point.get('confirmed_by') and point.get('confirmed_at')
                 and point.get('revision') == source.get('revision') and point.get('quote')
-                and point['quote'] in source['content']):
+                and is_complete_claim_quote(source['content'], point['quote'])):
             if source['kind'] == 'product' and point.get('product_id') not in (None, source.get('external_id')):
                 continue
             point=deepcopy(point)
@@ -100,7 +101,7 @@ async def save_brand(repo, org_id, config, user_id):
     sources = {row['id']: row for row in context['sources'] if row.get('org_id') == org_id and not row.get('deleted_at') and not row.get('forgotten_at')}
     for point in values['proof_points']:
         source = sources.get(point['source_id'])
-        if not source or source['kind'] not in ('product', 'faq', 'manual') or source['revision'] != point['revision'] or point['quote'] not in source['content']:
+        if not source or source['kind'] not in ('product', 'faq', 'manual') or source['revision'] != point['revision'] or not is_complete_claim_quote(source['content'], point['quote']):
             raise ValueError('Proof must quote a current product, FAQ, or manual source exactly; refresh source revisions.')
         if source['kind'] == 'product':
             if point['product_id'] and point['product_id'] != source['external_id']:

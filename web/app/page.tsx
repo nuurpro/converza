@@ -4,29 +4,21 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Check,
   ArrowUpRight,
-  Search,
   PenLine,
-  Calendar,
-  TrendingUp,
   Sparkles,
   Eye,
-  Wallet,
-  Crosshair,
   Send,
   ShieldCheck,
-  ListFilter,
   Plug,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {useWorkspace} from "@/lib/hooks/useWorkspace";
 import { HitlCard, StatCard } from "@/components/workspace/AgentWorkspace";
 import {useMiloOrg} from "@/lib/hooks/useMiloOrg";
-import {downloadVideo,type VeaVideoArtifact} from "@/lib/data/vea";
+import {downloadVideo} from "@/lib/data/vea";
 import { type DashboardStat } from "@/lib/data/workspace";
-import {fetchMiloCampaigns} from '@/lib/api/milo';
-import {pendingCampaignReviews} from '@/lib/data/dashboard';
+import {createPendingFeedController,type PendingFeedItem} from '@/lib/api/feed';
 import {
   fetchDashboardStats,
   mapSquadMessage,
@@ -41,16 +33,6 @@ interface LedgerEvent {
   action: string;
   icon: LucideIcon;
   live?: boolean;
-}
-
-interface Approval {
-  id: string;
-  eyebrow: string;
-  title: string;
-  body: string;
-  impact: string;
-  revision: number;
-  veaArtifact?: VeaVideoArtifact | null;
 }
 
 const agentLabels: Record<string, string> = {
@@ -97,38 +79,45 @@ export default function DashboardPage() {
   const org=useMiloOrg();return org?<Dashboard key={org} org={org}/>:<p className="p-5 text-sm">Sign in to review approvals.</p>;
 }
 function Dashboard({org}:{org:string}) {
-  const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [editingApprovalId, setEditingApprovalId] = useState<string | null>(null);
-  const [editDrafts, setEditDrafts] = useState<Record<string, string>>({});
+  const [approvals, setApprovals] = useState<PendingFeedItem[]>([]);
+  const [nextCursor,setNextCursor]=useState<string|null>(null);
+  const [feedLoading,setFeedLoading]=useState(true);
+  const [feedError,setFeedError]=useState<string|null>(null);
+  const feed=useRef<ReturnType<typeof createPendingFeedController>|null>(null);
   const [ledger, setLedger] = useState<LedgerEvent[]>([]);
   const [stats, setStats] = useState<DashboardStat[]>([]);
-  const [campaigns,setCampaigns]=useState<ReturnType<typeof pendingCampaignReviews>>([]);
-  const [campaignError,setCampaignError]=useState('');
   const [busy,setBusy]=useState(false);
   const alive=useRef(false),lock=useRef(false),keys=useRef(new Map<string,string>());
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
 
   const workspace=useWorkspace();
   useEffect(()=>{
-    let active=true;
-    const refresh=()=>void fetchMiloCampaigns(org).then(result=>{if(active){setCampaigns(pendingCampaignReviews(result.campaigns));setCampaignError('');}}).catch(error=>{if(active)setCampaignError(error.message);});
-    refresh();const timer=setInterval(refresh,5000);return()=>{active=false;clearInterval(timer);};
+    const controller=createPendingFeedController(org,page=>{
+      setApprovals(page.items);setNextCursor(page.next_cursor);setFeedLoading(false);
+    },error=>{setFeedError(error);if(error)setFeedLoading(false);});
+    feed.current=controller;
+    const refresh=()=>controller.refresh();
+    window.addEventListener('online',refresh);document.addEventListener('visibilitychange',refresh);
+    return()=>{controller.stop();feed.current=null;window.removeEventListener('online',refresh);document.removeEventListener('visibilitychange',refresh);};
   },[org]);
   useEffect(()=>{
-    setApprovals(Object.values(workspace.drafts).filter(draft=>draft.status==="AWAITING_HITL"&&!draft.superseded_by&&!draft.vea_artifact?.superseded).map(draft=>({
-      id:draft.id,revision:draft.revision,eyebrow:agentLabels[draft.agent_slug]??draft.agent_slug,
-      title:draft.agent_slug==="vea"?"Review generated video asset":"Review agent draft",
-      body:draft.draft_content,impact:draft.vea_artifact?"Approval required before export":"Approval required before publishing",veaArtifact:draft.vea_artifact,
-    })));
+    // SSE snapshots (including reconnects) invalidate the unified server projection.
+    feed.current?.refresh();
+  },[workspace.drafts,workspace.error]);
+  useEffect(()=>{
     const latestSteps=new Map<string,AgentRunStepRow>();
     for(const step of workspace.steps as unknown as AgentRunStepRow[])latestSteps.set(`${step.agent_run_id}:${step.step_label}`,step);
     setLedger([...latestSteps.values()].slice(-9).reverse().map(ledgerEventFromStep));
     let active=true;void fetchDashboardStats(org).then(result=>{if(active)setStats(result);}).catch(error=>{if(active)workspace.setError(error.message);});
     return()=>{active=false;};
-  },[workspace.drafts,workspace.steps]);
+  },[org,workspace.steps]);
 
   async function resolve(id: string, action: "approve" | "reject" | "edit", finalContent?: string) {
-    const draft=workspace.drafts[id];if(!draft||lock.current||(draft.vea_artifact&&action==='edit'))return;
+    const item=approvals.find(row=>row.kind==='workflow'&&row.source_id===id);
+    if(!item||item.kind!=='workflow'||lock.current)return;
+    const draft=item.payload.draft;
+    const allowed=action==='approve'?item.restrictions.can_approve:action==='edit'?item.restrictions.can_edit:item.restrictions.can_reject;
+    if(!allowed)return;
     lock.current=true;setBusy(true);const signature=JSON.stringify([id,draft.revision,action,finalContent]);let key=keys.current.get(signature);if(!key){key=crypto.randomUUID();keys.current.set(signature,key);}
     try {
       const result=await resolveHitlDraft(id, action, finalContent, draft.revision,key);keys.current.delete(signature);
@@ -140,13 +129,8 @@ function Dashboard({org}:{org:string}) {
       lock.current=false;if(alive.current)setBusy(false);
     }
     if(!alive.current)return;
-    setApprovals((arr) => arr.filter((a) => a.id !== id));
-    setEditingApprovalId(null);
-    setEditDrafts((current) => {
-      const next = { ...current };
-      delete next[id];
-      return next;
-    });
+    setApprovals((arr) => arr.filter((a) => a.id !== item.id));
+    feed.current?.refresh();
     void fetchDashboardStats(org).then(result=>{if(alive.current)setStats(result);}).catch(() => undefined);
   }
 
@@ -279,118 +263,37 @@ function Dashboard({org}:{org:string}) {
                   Approval queue
                 </h2>
                 <p className="mt-1 font-workspace-mono text-[10px] uppercase tracking-[0.1em] text-[#999999]">
-                  {approvals.length + campaigns.length === 0
+                  {feedError?"Refresh unavailable":feedLoading?"Loading approvals":approvals.length === 0
                     ? "Caught up"
-                    : `${approvals.length + campaigns.length} waiting on you`}
+                    : `${approvals.length}${nextCursor?'+':''} waiting on you`}
                 </p>
               </div>
             </header>
 
             <div className="space-y-4">
-              {campaignError&&<p role="alert" className="text-sm text-error">Milo campaigns: {campaignError}</p>}
-              {campaigns.map(campaign=><article key={campaign.id} className="rounded-2xl border border-[#e5e5e5] bg-white p-5">
-                <p className="font-workspace-mono text-[10px] uppercase text-milo">Milo · {campaign.status.replaceAll('_',' ')}</p>
-                <h3 className="mt-2 text-[15.5px] font-medium">{campaign.artifact?.trigger_reason||'Campaign needs review'}</h3>
-                <Link href={campaign.href} className="mt-3 inline-flex items-center gap-1 text-sm underline">Review campaign <ArrowUpRight size={14}/></Link>
-              </article>)}
+              {feedError&&<p role="alert" className="text-sm text-error">{feedError} <button onClick={()=>feed.current?.refresh()} className="underline">Retry</button></p>}
               <AnimatePresence mode="popLayout">
-                {approvals.map((ap, i) => (ap.veaArtifact ? <HitlCard key={ap.id} card={{id:ap.id,label:ap.title,status:'pending',content:ap.body,revision:ap.revision,veaArtifact:ap.veaArtifact}} busy={busy} onApprove={()=>void resolve(ap.id,'approve')} onSkip={()=>void resolve(ap.id,'reject')} onEdit={()=>{}}/> :
-                  <motion.article
-                    key={ap.id}
-                    layout
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8, scale: 0.985 }}
-                    transition={{
-                      duration: 0.45,
-                      delay: 0.05 * i + 0.1,
-                      ease: [0.16, 1, 0.3, 1],
-                    }}
-                    className="rounded-2xl border border-[#e5e5e5] bg-white p-5 transition-colors hover:bg-[#fafafa]"
-                  >
-                    <p className="font-workspace-mono text-[10px] uppercase tracking-[0.12em] text-[#999999]">
-                      {ap.eyebrow}
-                    </p>
-                    <h3 className="mt-2 text-[15.5px] font-medium leading-snug tracking-[-0.005em] text-[#111111]">
-                      {ap.title}
-                    </h3>
-                    <p className="mt-2.5 text-[13.5px] leading-[1.6] text-[#666666]">
-                      {ap.body}
-                    </p>
-                    <div className="mt-3 inline-flex items-center gap-1.5 font-workspace-mono text-[10px] uppercase tracking-[0.12em] text-sleyz">
-                      <ArrowUpRight size={11} strokeWidth={2.2} />
-                      {ap.impact}
-                    </div>
-                    {editingApprovalId === ap.id && (
-                      <div className="mt-4">
-                        <label className="mb-1.5 block font-workspace-mono text-[10px] uppercase tracking-[0.12em] text-[#999999]">
-                          Replacement content
-                        </label>
-                        <textarea
-                          value={editDrafts[ap.id] ?? ap.body}
-                          onChange={(event) =>
-                            setEditDrafts((current) => ({
-                              ...current,
-                              [ap.id]: event.target.value,
-                            }))
-                          }
-                          rows={5}
-                          className="w-full resize-none rounded-xl border border-[#e5e5e5] bg-[#fafafa] px-3.5 py-3 text-[13px] leading-[1.55] text-[#111111] outline-none transition-colors placeholder:text-[#999999] focus:border-converza-blue focus:bg-white"
-                          placeholder="Type the exact version you want saved..."
-                        />
-                      </div>
-                    )}
-
-                    <div className="mt-5 flex items-center justify-between">
-                      <Link href="/squad" className="text-[12px] text-[#666666] transition-colors hover:text-[#111111]">
-                        More context →
-                      </Link>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => void resolve(ap.id, "reject")}
-                          className="rounded-full border border-[#e5e5e5] bg-white px-4 py-1.5 text-[12.5px] font-medium text-[#666666] transition-colors hover:bg-[#f4f4f5] hover:text-[#111111]"
-                        >
-                          Reject
-                        </button>
-                        {editingApprovalId === ap.id ? (
-                          <button
-                            onClick={() => {
-                              const finalContent = (editDrafts[ap.id] ?? ap.body).trim();
-                              if (finalContent) void resolve(ap.id, "edit", finalContent);
-                            }}
-                            disabled={!(editDrafts[ap.id] ?? ap.body).trim()}
-                            className="rounded-full border border-[#e5e5e5] bg-white px-4 py-1.5 text-[12.5px] font-medium text-[#111111] transition-colors hover:bg-[#f4f4f5] disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Submit edit
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              setEditingApprovalId(ap.id);
-                              setEditDrafts((current) => ({
-                                ...current,
-                                [ap.id]: current[ap.id] ?? ap.body,
-                              }));
-                            }}
-                            className="rounded-full border border-[#e5e5e5] bg-white px-4 py-1.5 text-[12.5px] font-medium text-[#666666] transition-colors hover:bg-[#f4f4f5] hover:text-[#111111]"
-                          >
-                            Request edit
-                          </button>
-                        )}
-                        <button
-                          onClick={() => void resolve(ap.id, "approve")}
-                          className="inline-flex items-center gap-1.5 rounded-full bg-black px-4 py-1.5 text-[12.5px] font-medium text-white transition-all duration-150 hover:scale-[1.02] active:scale-[0.97]"
-                        >
-                          <Check size={11} strokeWidth={2.6} />
-                          Approve
-                        </button>
-                      </div>
-                    </div>
-                  </motion.article>
-                ))}
+                {approvals.map(item=>{
+                  if(item.kind==='milo'){
+                    const campaign=item.payload.campaign;
+                    return <motion.article key={item.id} layout className="rounded-2xl border border-[#e5e5e5] bg-white p-5">
+                      <p className="font-workspace-mono text-[10px] uppercase text-milo">Milo · {campaign.status.replaceAll('_',' ')}</p>
+                      <h3 className="mt-2 text-[15.5px] font-medium">{campaign.artifact?.trigger_reason||'Campaign needs review'}</h3>
+                      {item.restrictions.reasons.length>0&&<ul className="mt-2 space-y-1 text-xs text-[#666666]">{item.restrictions.reasons.map((reason,index)=><li key={index}>{reason}</li>)}</ul>}
+                      <Link href={item.payload.review_href} className="mt-3 inline-flex items-center gap-1 text-sm underline">Review campaign <ArrowUpRight size={14}/></Link>
+                    </motion.article>;
+                  }
+                  const draft=item.payload.draft;
+                  const card=mapSquadMessage({id:item.id,org_id:org,sender_slug:draft.agent_slug,content:'',hitl_draft_id:draft.id},draft).hitlCard;
+                  return card?<motion.article key={item.id} layout initial={{opacity:0,y:6}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-6}}>
+                    <p className="font-workspace-mono text-[10px] uppercase text-[#999999]">{agentLabels[draft.agent_slug]??draft.agent_slug}</p>
+                    <HitlCard key={`${item.id}:${item.revision}`} card={card} busy={busy} onApprove={()=>void resolve(item.source_id,'approve')} onSkip={()=>void resolve(item.source_id,'reject')} onEdit={text=>void resolve(item.source_id,'edit',text)}/>
+                  </motion.article>:null;
+                })}
               </AnimatePresence>
+              {nextCursor&&<button disabled={feedLoading} onClick={()=>{setFeedLoading(true);feed.current?.loadMore();}} className="rounded-full border border-[#e5e5e5] px-4 py-2 text-sm disabled:opacity-50">Load more approvals</button>}
 
-              {approvals.length === 0 && campaigns.length===0 && !campaignError && (
+              {approvals.length === 0 && !feedLoading && !feedError && (
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}

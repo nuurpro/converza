@@ -9,6 +9,7 @@ export interface MiloCampaignArtifact {
 }
 export interface MiloCampaign {
  id:string;org_id:string;revision:number;status:'queued'|'generating'|'awaiting_review'|'needs_evidence'|'blocked'|'failed';
+ product_id?:string|null;
  trigger:'manual'|'daily'|'spike';artifact:MiloCampaignArtifact|null;compliance:{passed:boolean;violations:string[]};missing_evidence:string[];
  script_status:'pending'|'approved'|'rejected';build_status:null|'queued'|'running'|'failed'|'ambiguous'|'completed';
  result?:{video_url?:string;task_id?:string;draft_id?:string};build_result?:{video_url?:string};last_error?:string;created_at:string;

@@ -216,7 +216,26 @@ def list_presets():
             for p in (load_preset(f.stem.removeprefix('preset_')) for f in sorted(PRESET_ROOT.glob('*.json')))]
 
 
-def load_assets(org_id, product_id=None, language='en', verify_media=True):
+def safe_crop(asset, width=1080, height=1920):
+    """Describe a centered, non-stretched crop; reject unusable source geometry."""
+    w, h = asset.get('width'), asset.get('height')
+    if any(type(v) is not int or not 2 <= v <= 16384 for v in (w, h)):
+        raise VeaError('invalid_media', 'Clip dimensions must be valid positive pixel dimensions')
+    crop_w, crop_h = min(w, h * width / height), min(h, w * height / width)
+    if min(crop_w, crop_h) < 2:
+        raise VeaError('invalid_media', 'Clip cannot be safely cropped to the recipe aspect ratio')
+    return {'mode': 'center_crop_no_stretch', 'source_width': w, 'source_height': h,
+            'x': (w-crop_w)/2, 'y': (h-crop_h)/2, 'width': crop_w, 'height': crop_h}
+
+
+def _scoped_asset(asset, product_id):
+    products = asset.get('product_ids', [])
+    # Music is a tenant-owned soundtrack, not initiative/product B-roll.
+    return asset.get('kind') == 'music' or (product_id in products if product_id else not products)
+
+
+def load_assets(org_id, product_id=None, language='en', verify_media=True, selection='automatic'):
+    if selection not in ('automatic', 'manual'): raise VeaError('invalid_selection_mode')
     root_value = os.getenv('VEA_ASSET_ROOT', '')
     if not root_value: raise VeaError('asset_catalog_unavailable', 'Configure a read-only VEA_ASSET_ROOT with catalog.json')
     root = Path(root_value).resolve()
@@ -226,9 +245,12 @@ def load_assets(org_id, product_id=None, language='en', verify_media=True):
     eligible, ids = [], set()
     for item in catalog.get('assets', []):
         if item.get('org_id') != org_id: continue
-        if item.get('rights_confirmed') is not True or 'advertising' not in item.get('permitted_uses', []): continue
+        uses = item.get('permitted_uses')
+        if item.get('rights_confirmed') is not True or not isinstance(uses, list) or 'advertising' not in uses: continue
         products = item.get('product_ids', [])
-        if products and (product_id is None or product_id not in products): continue
+        if not isinstance(products, list) or any(not isinstance(p, str) for p in products):
+            raise VeaError('invalid_asset_catalog')
+        if selection == 'automatic' and not _scoped_asset(item, product_id): continue
         if not isinstance(item.get('id'), str) or item['id'] in ids: raise VeaError('invalid_asset_catalog')
         ids.add(item['id'])
         relative = Path(item.get('path', ''))
@@ -237,9 +259,10 @@ def load_assets(org_id, product_id=None, language='en', verify_media=True):
             raise VeaError('unsafe_asset_path')
         if not re.fullmatch('[a-f0-9]{64}', item.get('sha256', '')) or file_hash(path) != item['sha256']:
             raise VeaError('asset_checksum_mismatch', f'Asset {item["id"]} differs from its catalog checksum')
-        if not isinstance(item.get('duration_sec'), (float, int)) or item['duration_sec'] <= 0:
+        if type(item.get('duration_sec')) not in (float, int) or not math.isfinite(item['duration_sec']) or item['duration_sec'] <= 0:
             raise VeaError('invalid_asset_catalog')
         if item.get('kind') not in ('video', 'music'): raise VeaError('invalid_asset_catalog')
+        if item['kind'] == 'video': safe_crop(item)
         if not isinstance(item.get('tags'), dict): raise VeaError('invalid_asset_catalog')
         if verify_media:
             info = probe_media(path)
@@ -249,6 +272,11 @@ def load_assets(org_id, product_id=None, language='en', verify_media=True):
                 raise VeaError('asset_metadata_mismatch', f'Asset {item["id"]} duration/type does not match catalog')
             if wanted == 'video' and (streams[0]['width'] != item.get('width') or streams[0]['height'] != item.get('height')):
                 raise VeaError('asset_metadata_mismatch')
+            if wanted == 'video' and streams[0].get('sample_aspect_ratio', '1:1') not in ('1:1', '0:1', 'N/A'):
+                raise VeaError('invalid_media', 'Normalize non-square pixels before adding this clip to the vault')
+            if wanted == 'video' and (streams[0].get('tags', {}).get('rotate', '0') not in ('0', 0) or
+                    any(s.get('rotation', 0) != 0 for s in streams[0].get('side_data_list', []))):
+                raise VeaError('invalid_media', 'Normalize clip rotation before adding it to the vault')
         eligible.append({**item, 'path': str(path)})
     return sorted(eligible, key=lambda a: a['id'])
 
@@ -367,7 +395,7 @@ def synthesize_narration(script_text, voice_id, language, cache_dir):
                                 'fallback_reason': primary_error}, script_text, language, cache_dir)
 
 
-def compile_composition(scenes, timings, durations, assets, preset, brand, language, clip_overrides=None, reuse_manifest=None):
+def compile_composition(scenes, timings, durations, assets, preset, brand, language, clip_overrides=None, reuse_manifest=None, product_id=None):
     segments, global_words, scene_entries = [], [], []
     offset = 0
     overrides = {o['segment_id']: o['asset_id'] for o in (clip_overrides or [])}
@@ -387,10 +415,20 @@ def compile_composition(scenes, timings, durations, assets, preset, brand, langu
                 ends = [w['end_ms'] for w in timing['words'] if cut_start + minimum <= w['end_ms'] <= cut_start + maximum]
                 cut_end = min(ends, key=lambda e: (abs(e - cut_start - (minimum + maximum) / 2), e)) if ends else cut_start + round((minimum + maximum) / 2)
             segment_id = f'scene-{scene_index + 1}-clip-{cut_index + 1}'
-            matching = select_matching_broll(scene['visual_broll_cues'], (cut_end - cut_start) / 1000, assets, language)
             requested = overrides.get(segment_id) or old.get(segment_id, {}).get('asset_id')
-            selected = next((a for a in matching if a['id'] == requested), None) if requested else matching[0]
-            if selected is None: raise VeaError('invalid_clip_override', f'Replacement for {segment_id} is unavailable or does not match the approved cue')
+            manual = segment_id in overrides
+            if manual:
+                # Only the bound config's persisted overrides authorize relevance bypass.
+                # A flag in a reused manifest is never an authorization source.
+                matching = []
+                selected = next((a for a in assets if a['id'] == requested and a.get('kind') == 'video'), None)
+                if selected is None: raise VeaError('invalid_clip_override', 'Operator-selected footage is no longer eligible')
+                safe_crop(selected, preset['width'], preset['height'])
+            else:
+                scoped = [a for a in assets if product_id is None or _scoped_asset(a, product_id)]
+                matching = select_matching_broll(scene['visual_broll_cues'], (cut_end - cut_start) / 1000, scoped, language)
+                selected = next((a for a in matching if a['id'] == requested), None) if requested else matching[0]
+                if selected is None: raise VeaError('missing_assets', f'No matching initiative footage for {segment_id}; add rights-cleared initiative clips or select a manual replacement')
             if segment_id in overrides: used.add(segment_id)
             source_start = old.get(segment_id, {}).get('source_start_ms', 0) if requested and segment_id not in overrides else 0
             if source_start < 0 or source_start + cut_end - cut_start > selected['duration_sec'] * 1000 + 1:
@@ -398,7 +436,9 @@ def compile_composition(scenes, timings, durations, assets, preset, brand, langu
             segments.append({'segment_id': segment_id, 'scene_index': scene_index, 'asset_id': selected['id'],
                              'asset_sha256': selected['sha256'], 'start_ms': offset + cut_start, 'end_ms': offset + cut_end,
                              'source_start_ms': source_start, 'source_end_ms': source_start + cut_end - cut_start,
-                             'selection_score': selected['selection_score'], 'alternatives': [a['id'] for a in matching[:8]]})
+                             'selection_mode': 'manual' if manual else 'automatic',
+                             **({'crop': safe_crop(selected, preset['width'], preset['height'])} if manual else {}),
+                             'selection_score': selected.get('selection_score', 0), 'alternatives': [a['id'] for a in matching[:8]]})
             cut_start, cut_index = cut_end, cut_index + 1
         offset += duration_ms
     if used != set(overrides): raise VeaError('invalid_clip_override', 'Timeline segment does not exist')
@@ -532,7 +572,10 @@ def start_render(task_id, params, output_dir, cache_root, progress=None):
     reused = config.get('reuse_manifest')
     if reused and (reused.get('preset_sha256') != content_hash(preset) or reused.get('preset') != preset):
         raise VeaError('preset_changed', 'Clip swaps require the original recipe; create a new variant after recipe changes')
-    assets = load_assets(binding.org_id, config.get('product_id'), language)
+    assets = load_assets(binding.org_id, config.get('product_id'), language,
+                         selection='manual' if config.get('clip_overrides') else 'automatic')
+    if not config.get('clip_overrides') and not any(a['kind'] == 'video' for a in assets):
+        raise VeaError('missing_assets', 'Add rights-cleared footage explicitly assigned to the selected initiative before rendering')
     stage_times['assets_sec'] = round(time.monotonic() - start, 3)
     if progress: progress(15)
     # Per-organization caches prevent cross-tenant narration sharing.
@@ -551,7 +594,7 @@ def start_render(task_id, params, output_dir, cache_root, progress=None):
     stage_times['narration_alignment_sec'] = round(time.monotonic() - start - stage_times['assets_sec'], 3)
     if progress: progress(40)
     manifest = compile_composition(scenes, timings, durations, assets, preset, config['brand_snapshot'], language,
-                                   config.get('clip_overrides'), config.get('reuse_manifest'))
+                                   config.get('clip_overrides'), config.get('reuse_manifest'), product_id=config.get('product_id'))
     manifest['org_id'] = binding.org_id
     manifest['script_sha256'] = binding.script_sha256
     manifest['narration_cache_keys'] = [s['cache_key'] for s in audio]

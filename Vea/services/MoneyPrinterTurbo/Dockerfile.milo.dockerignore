@@ -5,6 +5,7 @@
 !config.example.toml
 !LICENSE
 !requirements.milo.txt
+!requirements.milo.lock
 !video_presets/
 !video_presets/*.json
 !scripts/

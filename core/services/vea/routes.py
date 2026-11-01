@@ -42,7 +42,8 @@ def create_vea_router(get_repo, authenticate, assert_owner):
     @router.get('/assets')
     async def assets(org_id:str,product_id:str|None=Query(default=None,max_length=200),language:str=Query(default='en',pattern='^(en|ru|uz)$'),auth=Depends(authenticate)):
         await scoped(org_id,auth)
-        data=await invoke(fetch_renderer('assets',{'org_id':org_id,'product_id':product_id,'language':language}))
+        # This UI catalog is for explicit operator swaps, not automatic selection.
+        data=await invoke(fetch_renderer('assets',{'org_id':org_id,'language':language,'selection':'manual'}))
         keys={'id','asset_id','name','title','tags','duration_sec','width','height','sha256','product_id','kind'}
         return {'assets':[{k:v for k,v in row.items() if k in keys} for row in data['assets']]}
 

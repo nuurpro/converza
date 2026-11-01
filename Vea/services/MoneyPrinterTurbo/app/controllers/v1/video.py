@@ -1,13 +1,16 @@
-import glob
+import mimetypes
 import os
 import pathlib
 import shutil
 from typing import Union
+from typing import Literal
+from urllib.parse import quote
 
 from fastapi import BackgroundTasks, Depends, Path, Query, Request, UploadFile
 from fastapi.params import File
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from loguru import logger
+from starlette.background import BackgroundTask
 
 from app.config import config
 from app.controllers import base
@@ -22,6 +25,7 @@ from app.models.schema import (
     BgmUploadResponse,
     SubtitleRequest,
     TaskDeletionResponse,
+    TaskListResponse,
     TaskQueryRequest,
     TaskQueryResponse,
     TaskResponse,
@@ -29,13 +33,15 @@ from app.models.schema import (
     VideoMaterialUploadResponse,
     VideoMaterialRetrieveResponse
 )
+from app.services import bgm as bgm_service
+from app.services import material_upload as material_upload_service
 from app.services import state as sm
 from app.services import task as tm
 from app.utils import file_security, utils
 
-# 认证依赖项
-# router = new_router(dependencies=[Depends(base.verify_token)])
-router = new_router()
+# 统一在 V1 视频路由入口执行鉴权。verify_token 会在 api_key 为空时
+# 保留现有免认证行为，只有管理员显式配置后才会影响客户端。
+router = new_router(dependencies=[Depends(base.verify_token)])
 
 
 @router.get("/capabilities", summary="Describe approved-script rendering support")
@@ -50,6 +56,10 @@ def capabilities():
         "overlay_timing": "aligned_narration_cues_with_character_interpolation",
         "visual_broll_cues": "ordered_stock_footage_search_terms",
         "deterministic_presets_v1": os.getenv('VEA_ENABLED', '0') == '1',
+        "manual_clip_overrides_v1": True,
+        "initiative_scoped_automatic_broll_v1": True,
+        "upstream_version": "1.3.9",
+        "upstream_commit": "6992380c5e82f07f3e1fc46b90927b6f1c655407",
     }
 
 
@@ -61,10 +71,10 @@ def vea_presets():
 
 @router.get('/vea/assets', summary='List eligible organization asset metadata')
 def vea_assets(org_id: str = Query(min_length=1), product_id: str | None = None,
-               language: str = 'en'):
+               language: str = 'en', selection: Literal['automatic','manual'] = 'automatic'):
     from app.services import vea
     try:
-        return utils.get_response(200, {'assets': vea.public_assets(vea.load_assets(org_id, product_id, language))})
+        return utils.get_response(200, {'assets': vea.public_assets(vea.load_assets(org_id, product_id, language, selection=selection))})
     except vea.VeaError as exc:
         raise HttpException(task_id='', status_code=422, message=str(exc), data={'error_code': exc.code}) from exc
 
@@ -76,7 +86,19 @@ _redis_password = config.app.get("redis_password", None)
 _max_concurrent_tasks = config.app.get("max_concurrent_tasks", 5)
 _max_queued_tasks = config.app.get("max_queued_tasks", 100)
 
-redis_url = f"redis://:{_redis_password}@{_redis_host}:{_redis_port}/{_redis_db}"
+
+def _build_redis_url(host: str, port: int, db: int, password: str | None) -> str:
+    # Passwords are URL userinfo. Escape reserved characters so Redis receives
+    # the exact configured secret rather than parsing part of it as a host,
+    # port, path, query, or fragment.
+    auth = f":{quote(password, safe='')}@" if password else ""
+    # URL authorities require brackets around IPv6 literals. RedisState also
+    # accepts a plain IPv6 host, so keep the queue client compatible with it.
+    url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return f"redis://{auth}{url_host}:{port}/{db}"
+
+
+redis_url = _build_redis_url(_redis_host, _redis_port, _redis_db, _redis_password)
 # 根据配置选择合适的任务管理器
 if _enable_redis:
     task_manager = RedisTaskManager(
@@ -118,6 +140,14 @@ def _resolve_path_within_directory(base_dir: str, unsafe_path: str, request_id: 
             message=f"{request_id}: invalid file path",
         )
 
+
+def _public_task_data(task: dict) -> dict:
+    """复制任务状态并移除仅用于服务端进程协调的内部字段。"""
+    public_task = dict(task)
+    public_task.pop("cross_post_owner", None)
+    return public_task
+
+
 def _task_file_to_uri(file: str, endpoint: str, task_dir: str, request_id: str) -> str:
     if not isinstance(file, str):
         return file
@@ -136,11 +166,85 @@ def _task_file_to_uri(file: str, endpoint: str, task_dir: str, request_id: str) 
         )
         return file
 
-    relative_path = os.path.relpath(resolved_path, task_dir).replace("\\", "/")
-    uri_path = f"tasks/{relative_path}"
+    relative_path = os.path.relpath(
+        resolved_path, os.path.realpath(task_dir)
+    ).replace("\\", "/")
+    uri_path = f"tasks/{quote(relative_path, safe='/')}"
     if endpoint:
         return f"{endpoint.rstrip('/')}/{uri_path}"
     return f"/{uri_path}"
+
+
+def _task_response_data(task: dict, endpoint: str, task_dir: str, request_id: str) -> dict:
+    response_task = _public_task_data(task)
+    for key in ("videos", "combined_videos"):
+        if key in task:
+            response_task[key] = [
+                _task_file_to_uri(file, endpoint, task_dir, request_id)
+                for file in task[key]
+            ]
+    for key in ("audio_file", "subtitle_path"):
+        if task.get(key):
+            response_task[key] = _task_file_to_uri(
+                task[key], endpoint, task_dir, request_id
+            )
+    return response_task
+
+
+def _parse_byte_range(
+    range_header: str | None, file_size: int, request_id: str
+) -> tuple[int, int]:
+    """解析单段 HTTP Range，并把无效或越界请求稳定转换成 416。"""
+    # 416 只用于回应 Range 请求。没有 Range 时空文件也是完整表示，
+    # 返回 0 字节的 200，与 /download 的行为一致。
+    if not range_header:
+        return 0, file_size - 1
+
+    if file_size <= 0:
+        raise HttpException(
+            task_id=request_id,
+            status_code=416,
+            message=f"{request_id}: requested range is not satisfiable",
+        )
+
+    try:
+        # 视频播放器这里只需要单段 bytes range。拒绝多段请求可以避免返回体
+        # 与 Content-Range 不一致，也避免异常字符串落入 int() 产生 500。
+        unit, separator, positions = range_header.strip(" \t").partition("=")
+        if unit.lower() != "bytes" or not separator or "," in positions:
+            raise ValueError("unsupported range format")
+        start_text, end_text = positions.split("-", 1)
+        if not start_text and not end_text:
+            raise ValueError("empty range")
+        # HTTP positions use ASCII DIGIT, not Python's broader int syntax.
+        if any(value and not (value.isascii() and value.isdigit())
+               for value in (start_text, end_text)):
+            raise ValueError("invalid byte position")
+
+        if not start_text:
+            suffix_length = int(end_text)
+            if suffix_length <= 0:
+                raise ValueError("invalid suffix length")
+            start = max(file_size - suffix_length, 0)
+            end = file_size - 1
+        else:
+            start = int(start_text)
+            end = int(end_text) if end_text else file_size - 1
+            if start < 0 or start >= file_size or end < start:
+                raise ValueError("range outside file")
+            end = min(end, file_size - 1)
+    except (TypeError, ValueError) as exc:
+        logger.warning(
+            f"reject invalid video range, request_id: {request_id}, "
+            f"range: {range_header}, file_size: {file_size}, error: {str(exc)}"
+        )
+        raise HttpException(
+            task_id=request_id,
+            status_code=416,
+            message=f"{request_id}: requested range is not satisfiable",
+        ) from exc
+
+    return start, end
 
 
 @router.post("/videos", response_model=TaskResponse, summary="Generate a short video")
@@ -173,9 +277,24 @@ def create_task(
             getattr(body, "approved_scenes", None) and getattr(body, "milo_binding", None)):
         raise HttpException(task_id=base.get_task_id(request), status_code=400,
                             message="This renderer requires a bound, approved Milo script")
+    if config.app.get('approved_only', False) and not body.vea_config and body.video_source not in ('local','pexels'):
+        raise HttpException(task_id=base.get_task_id(request),status_code=400,
+                            message='Only existing approved local/stock rendering is enabled; generation providers are disabled')
     task_id = utils.get_uuid()
     request_id = base.get_task_id(request)
     try:
+        if (
+            stop_at == "video"
+            and isinstance(body, TaskVideoRequest)
+            and body.subtitle_enabled
+            and body.vea_config is None
+        ):
+            tm.video.validate_subtitle_colors(body)
+            # 字体名可由 API 客户端直接提交，不能等到后台渲染时才发现路径越界。
+            # 这里与渲染层共用目录边界校验，让非法请求在创建付费任务前返回 400。
+            file_security.resolve_path_within_directory(
+                utils.font_dir(), body.font_name or "STHeitiMedium.ttc"
+            )
         task = {
             "task_id": task_id,
             "request_id": request_id,
@@ -184,10 +303,9 @@ def create_task(
         binding = getattr(body, "milo_binding", None)
         sm.state.update_task(task_id, **({"milo_binding": binding.model_dump()} if binding else {}))
         task_manager.add_task(tm.start, task_id=task_id, params=body, stop_at=stop_at)
-        logger.success(f"Task created: {utils.to_json(task)}")
+        logger.success(f"Task created: {task_id}")
         return utils.get_response(200, task)
     except TaskQueueFullError as e:
-        sm.state.delete_task(task_id)
         logger.warning(
             f"reject task because queue is full, request_id: {request_id}, task_id: {task_id}"
         )
@@ -199,12 +317,21 @@ def create_task(
             task_id=task_id, status_code=400, message=f"{request_id}: {str(e)}"
         )
 
-@router.get("/tasks", response_model=TaskQueryResponse, summary="Get all tasks")
-def get_all_tasks(request: Request, page: int = Query(1, ge=1), page_size: int = Query(10, ge=1)):
+@router.get("/tasks", response_model=TaskListResponse, summary="Get all tasks")
+def get_all_tasks(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=1000),
+):
     tasks, total = sm.state.get_all_tasks(page, page_size)
+    request_id = base.get_task_id(request)
+    endpoint = config.app.get("endpoint", "").rstrip("/")
+    task_dir = utils.task_dir()
 
     response = {
-        "tasks": tasks,
+        "tasks": [
+            _task_response_data(task, endpoint, task_dir, request_id) for task in tasks
+        ],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -226,18 +353,7 @@ def get_task(
     task = sm.state.get_task(task_id)
     if task:
         task_dir = utils.task_dir()
-        response_task = dict(task)
-
-        if "videos" in task:
-            response_task["videos"] = [
-                _task_file_to_uri(v, endpoint, task_dir, request_id)
-                for v in task["videos"]
-            ]
-        if "combined_videos" in task:
-            response_task["combined_videos"] = [
-                _task_file_to_uri(v, endpoint, task_dir, request_id)
-                for v in task["combined_videos"]
-            ]
+        response_task = _task_response_data(task, endpoint, task_dir, request_id)
         return utils.get_response(200, response_task)
 
     raise HttpException(
@@ -254,10 +370,29 @@ def delete_video(request: Request, task_id: str = Path(..., description="Task ID
     request_id = base.get_task_id(request)
     task = sm.state.get_task(task_id)
     if task:
+        if tm.is_task_busy(task):
+            logger.warning(
+                f"refuse to delete busy task, request_id: {request_id}, "
+                f"task_id: {task_id}, state: {task.get('state')}, "
+                f"cross_post_state: {task.get('cross_post_state')}"
+            )
+            raise HttpException(
+                task_id=task_id,
+                status_code=409,
+                message=f"{request_id}: task is still running",
+            )
+
         tasks_dir = utils.task_dir()
         current_task_dir = os.path.join(tasks_dir, task_id)
         if os.path.exists(current_task_dir):
-            shutil.rmtree(current_task_dir)
+            try:
+                shutil.rmtree(current_task_dir)
+            except FileNotFoundError:
+                # Another completed-task deletion may remove this directory
+                # after our existence check. Only accept an absent root;
+                # partial deletion and other filesystem errors must keep state.
+                if os.path.lexists(current_task_dir):
+                    raise
 
         sm.state.delete_task(task_id)
         logger.success(f"video deleted: {utils.to_json(task)}")
@@ -272,18 +407,20 @@ def delete_video(request: Request, task_id: str = Path(..., description="Task ID
     "/musics", response_model=BgmRetrieveResponse, summary="Retrieve local BGM files"
 )
 def get_bgm_list(request: Request):
-    suffix = "*.mp3"
-    song_dir = utils.song_dir()
-    files = glob.glob(os.path.join(song_dir, suffix))
     bgm_list = []
-    for file in files:
+    for file in bgm_service.list_bgm_files():
         filename = os.path.basename(file)
+        try:
+            size = os.path.getsize(file)
+        except OSError as exc:
+            logger.warning(f"skip unavailable background music: name={filename}, error={exc}")
+            continue
         bgm_list.append(
             {
                 "name": filename,
-                "size": os.path.getsize(file),
-                # 只返回文件名，避免把服务器绝对路径暴露给调用方。
-                # 服务端后续会把该文件名解析回 songs 白名单目录。
+                "size": size,
+                # 只返回文件名，避免把服务器绝对路径暴露给调用方。服务端会
+                # 在 storage/bgm 和 resource/songs 两个白名单目录中重新解析。
                 "file": filename,
             }
         )
@@ -294,51 +431,76 @@ def get_bgm_list(request: Request):
 @router.post(
     "/musics",
     response_model=BgmUploadResponse,
-    summary="Upload the BGM file to the songs directory",
+    summary="Upload a background music file",
+    description=(
+        "Validate an MP3, M4A, AAC, WAV, FLAC, OGG, OPUS, or WMA file up to "
+        "30 MB and store it under an immutable UUID filename in storage/bgm."
+    ),
+    responses={
+        400: {"description": "The filename, format, size, or audio stream is invalid"},
+        500: {"description": "FFmpeg validation or persistent storage is unavailable"},
+    },
 )
 def upload_bgm_file(request: Request, file: UploadFile = File(...)):
     request_id = base.get_task_id(request)
-    safe_filename = _sanitize_upload_filename(file.filename, request_id)
-    # check file ext
-    if safe_filename.lower().endswith("mp3"):
-        song_dir = utils.song_dir()
-        save_path = os.path.join(song_dir, safe_filename)
-        # save file
-        with open(save_path, "wb+") as buffer:
-            # If the file already exists, it will be overwritten
-            file.file.seek(0)
-            buffer.write(file.file.read())
-        response = {"file": safe_filename}
-        return utils.get_response(200, response)
+    try:
+        safe_filename = bgm_service.save_bgm_upload(file.filename, file.file)
+    except bgm_service.BgmUploadError as exc:
+        # 上传失败通常可以由用户更换文件后恢复，因此记录 request_id 和明确原因，
+        # 但不输出文件内容或绝对路径，避免日志泄露用户数据。
+        logger.warning(
+            f"background music upload rejected: request_id={request_id}, error={str(exc)}"
+        )
+        raise HttpException(
+            task_id=request_id,
+            status_code=400,
+            message=f"{request_id}: {str(exc)}",
+        )
+    except bgm_service.BgmServiceError as exc:
+        # 工具链或存储故障属于服务端问题，不能伪装成用户文件错误。日志保留
+        # request_id 和内部原因，HTTP 响应只返回稳定文案，避免暴露服务器路径。
+        logger.error(
+            f"background music upload failed: request_id={request_id}, error={str(exc)}"
+        )
+        raise HttpException(
+            task_id=request_id,
+            status_code=500,
+            message=f"{request_id}: background music validation is unavailable",
+        )
 
-    raise HttpException(
-        "", status_code=400, message=f"{request_id}: Only *.mp3 files can be uploaded"
-    )
+    response = {"file": safe_filename}
+    return utils.get_response(200, response)
 
 @router.get(
     "/video_materials", response_model=VideoMaterialRetrieveResponse, summary="Retrieve local video materials"
 )
 def get_video_materials_list(request: Request):
-    allowed_suffixes = ("mp4", "mov", "avi", "flv", "mkv", "jpg", "jpeg", "png")
+    allowed_suffixes = material_upload_service.SUPPORTED_MATERIAL_EXTENSIONS
     local_videos_dir = utils.storage_dir("local_videos", create=True)
-    files = []
-    for suffix in allowed_suffixes:
-        files.extend(glob.glob(os.path.join(local_videos_dir, f"*.{suffix}")))
-    # 文件系统枚举顺序不稳定，直接返回会导致“顺序拼接”在不同机器或不同
-    # 时刻表现不一致。这里统一按文件名排序，至少保证服务端返回顺序可预测。
-    files.sort(key=lambda file_path: os.path.basename(file_path).lower())
     video_materials_list = []
-    for file in files:
-        filename = os.path.basename(file)
-        video_materials_list.append(
-            {
-                "name": filename,
-                "size": os.path.getsize(file),
-                # 与 BGM 一样，只返回文件名；创建任务时再在 local_videos
-                # 白名单目录内解析，避免 API 泄露宿主机绝对路径。
-                "file": filename,
-            }
-        )
+    with os.scandir(local_videos_dir) as entries:
+        for entry in entries:
+            if (
+                entry.name.startswith(".")
+                or pathlib.Path(entry.name).suffix.lower() not in allowed_suffixes
+            ):
+                continue
+            try:
+                # Do not follow links outside local_videos or list an upload
+                # that disappeared while the directory was being scanned.
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+                size = entry.stat(follow_symlinks=False).st_size
+            except OSError as exc:
+                logger.warning(
+                    f"skip unavailable local material: name={entry.name}, error={exc}"
+                )
+                continue
+            video_materials_list.append(
+                {"name": entry.name, "size": size, "file": entry.name}
+            )
+    # Keep ordered material selection stable across file systems and runs.
+    video_materials_list.sort(key=lambda item: (item["name"].casefold(), item["name"]))
     response = {"files": video_materials_list}
     return utils.get_response(200, response)
 
@@ -350,70 +512,105 @@ def get_video_materials_list(request: Request):
 )
 def upload_video_material_file(request: Request, file: UploadFile = File(...)):
     request_id = base.get_task_id(request)
-    safe_filename = _sanitize_upload_filename(file.filename, request_id)
-    # check file ext
-    allowed_suffixes = ("mp4", "mov", "avi", "flv", "mkv", "jpg", "jpeg", "png")
-    normalized_filename = safe_filename.lower()
-    # 统一按小写扩展名校验，兼容 .MOV 这类大写后缀文件。
-    if normalized_filename.endswith(allowed_suffixes):
-        local_videos_dir = utils.storage_dir("local_videos", create=True)
-        save_path = os.path.join(local_videos_dir, safe_filename)
-        # save file
-        with open(save_path, "wb+") as buffer:
-            # If the file already exists, it will be overwritten
-            file.file.seek(0)
-            buffer.write(file.file.read())
-        response = {"file": safe_filename}
-        return utils.get_response(200, response)
+    try:
+        # Keep accepting browser-supplied client paths, but persist an immutable
+        # UUID storage key so repeated names cannot overwrite queued task inputs.
+        safe_filename = _sanitize_upload_filename(file.filename, request_id)
+        stored_filename = material_upload_service.save_material_upload(
+            safe_filename, file.file
+        )
+    except material_upload_service.MaterialUploadError as exc:
+        logger.warning(
+            f"local material upload rejected: request_id={request_id}, "
+            f"error={str(exc)}"
+        )
+        raise HttpException(
+            task_id=request_id,
+            status_code=400,
+            message=f"{request_id}: {str(exc)}",
+        )
+    except material_upload_service.MaterialServiceError as exc:
+        logger.error(
+            f"local material upload failed: request_id={request_id}, "
+            f"error={str(exc)}"
+        )
+        raise HttpException(
+            task_id=request_id,
+            status_code=500,
+            message=f"{request_id}: local material validation is unavailable",
+        )
 
-    raise HttpException(
-        "", status_code=400, message=f"{request_id}: Only files with extensions {', '.join(allowed_suffixes)} can be uploaded"
-    )
+    response = {"file": stored_filename}
+    return utils.get_response(200, response)
 
 @router.get("/stream/{file_path:path}")
+@router.head("/stream/{file_path:path}", summary="Inspect video stream metadata")
 async def stream_video(request: Request, file_path: str):
     request_id = base.get_task_id(request)
     tasks_dir = utils.task_dir()
     video_path = _resolve_path_within_directory(tasks_dir, file_path, request_id)
     range_header = request.headers.get("Range")
-    video_size = os.path.getsize(video_path)
-    start, end = 0, video_size - 1
+    if range_header and request.headers.get("If-Range") is not None:
+        # This stream does not publish strong ETag/Last-Modified validators.
+        # An unverifiable If-Range must fall back to the full representation,
+        # so a client cannot combine old cached bytes with a new video tail.
+        range_header = None
+    # The body is produced after this handler returns. Open now so a task
+    # deletion or replacement between headers and iteration cannot make the
+    # stream fail or mismatch the size used for Content-Range.
+    try:
+        video_file = open(video_path, "rb")
+    except FileNotFoundError as exc:
+        raise HttpException(
+            task_id=request_id,
+            status_code=404,
+            message=f"{request_id}: file no longer exists",
+        ) from exc
+    try:
+        video_size = os.fstat(video_file.fileno()).st_size
+        if request.method == "HEAD":
+            # Range applies to GET only. Close before returning metadata; no
+            # generator or deferred background cleanup is needed for HEAD.
+            video_file.close()
+            return Response(
+                media_type="video/mp4",
+                headers={"Accept-Ranges": "bytes", "Content-Length": str(video_size)},
+            )
+        start, end = _parse_byte_range(range_header, video_size, request_id)
+    except Exception:
+        video_file.close()
+        raise
+    length = end - start + 1
 
-    length = video_size
-    if range_header:
-        range_ = range_header.split("bytes=")[1]
-        start, end = [int(part) if part else None for part in range_.split("-")]
-        if start is None:
-            start = video_size - end
-            end = video_size - 1
-        if end is None:
-            end = video_size - 1
-        length = end - start + 1
-
-    def file_iterator(file_path, offset=0, bytes_to_read=None):
-        with open(file_path, "rb") as f:
-            f.seek(offset, os.SEEK_SET)
-            remaining = bytes_to_read or video_size
+    def file_iterator():
+        try:
+            video_file.seek(start, os.SEEK_SET)
+            remaining = length
             while remaining > 0:
-                bytes_to_read = min(4096, remaining)
-                data = f.read(bytes_to_read)
+                data = video_file.read(min(4096, remaining))
                 if not data:
                     break
                 remaining -= len(data)
                 yield data
+        finally:
+            video_file.close()
 
     response = StreamingResponse(
-        file_iterator(video_path, start, length), media_type="video/mp4"
+        file_iterator(),
+        media_type="video/mp4",
+        background=BackgroundTask(video_file.close),
     )
-    response.headers["Content-Range"] = f"bytes {start}-{end}/{video_size}"
     response.headers["Accept-Ranges"] = "bytes"
     response.headers["Content-Length"] = str(length)
-    response.status_code = 206  # Partial Content
+    if range_header:
+        response.headers["Content-Range"] = f"bytes {start}-{end}/{video_size}"
+        response.status_code = 206  # Partial Content
 
     return response
 
 
 @router.get("/download/{file_path:path}")
+@router.head("/download/{file_path:path}", summary="Inspect artifact download metadata")
 async def download_video(request: Request, file_path: str):
     """
     download video
@@ -425,12 +622,26 @@ async def download_video(request: Request, file_path: str):
     tasks_dir = utils.task_dir()
     video_path = _resolve_path_within_directory(tasks_dir, file_path, request_id)
     file_path = pathlib.Path(video_path)
-    filename = file_path.stem
-    extension = file_path.suffix
-    headers = {"Content-Disposition": f"attachment; filename={filename}{extension}"}
-    return FileResponse(
+    filename = file_path.name
+    media_type, _ = mimetypes.guess_type(filename)
+    stat_result = None
+    if request.method == "HEAD":
+        try:
+            stat_result = os.stat(video_path)
+        except FileNotFoundError as exc:
+            raise HttpException(
+                task_id=request_id,
+                status_code=404,
+                message=f"{request_id}: file no longer exists",
+            ) from exc
+    response = FileResponse(
         path=video_path,
-        headers=headers,
-        filename=f"{filename}{extension}",
-        media_type=f"video/{extension[1:]}",
+        filename=filename,
+        media_type=media_type or "application/octet-stream",
+        stat_result=stat_result,
     )
+    if request.method == "HEAD":
+        # Reuse FileResponse's metadata without reading its body or applying
+        # GET-only Range processing to this HEAD request.
+        return Response(headers=response.headers)
+    return response

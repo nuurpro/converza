@@ -35,6 +35,17 @@ class MiloRouteTests(unittest.TestCase):
         self.assertEqual(first.json()['id'],second.json()['id'])
         self.assertEqual(self.client.post('/api/milo/a/campaigns',json={'prompt':'Changed'},headers=headers).status_code,409)
 
+    def test_explicit_product_selection_is_persisted_and_tenant_checked(self):
+        headers = {'Idempotency-Key': 'scope'}
+        response = self.client.post('/api/milo/a/campaigns', json={'product_id': 'p'}, headers=headers)
+        self.assertEqual(response.status_code, 202, response.text)
+        self.assertEqual(response.json()['product_id'], 'p')
+        changed = self.client.post('/api/milo/a/campaigns', json={}, headers=headers)
+        self.assertEqual(changed.status_code, 409)
+        missing = self.client.post('/api/milo/a/campaigns', json={'product_id': 'missing'},
+            headers={'Idempotency-Key': 'missing'})
+        self.assertEqual(missing.status_code, 409)
+
     def test_brand_confirmation_verifies_exact_current_source_and_owner_stamp(self):
         body={'campaign_language':'ru','personas':[],'proof_points':[{'id':'one','source_id':'fact','revision':2,'quote':'The shell uses reinforced stitching.'}],
               'banned_terms':[],'competitor_names':[]}

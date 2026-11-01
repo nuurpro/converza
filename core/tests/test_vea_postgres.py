@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock,patch
 from services.vea.store import VeaStore, prepare_build
 from services.workflow.state import WorkflowConflict
 import test_milo_postgres as milo_tests
+from test_vea_storage import catalog_asset
 
 
 @unittest.skipUnless(os.getenv('CONVERZA_WORKFLOW_TEST_DSN'),'requires isolated PostgreSQL test database')
@@ -74,7 +75,7 @@ class VeaPostgresTests(unittest.TestCase):
         self.assertEqual(draft['vea_artifact']['id'],v['id'])
         with self.assertRaises(WorkflowConflict):
             self.run_async(self.repo.transition_draft(self.org,draft['id'],'edit',draft['revision'],'edit',edited_content='bad'))
-        with patch('services.vea.store.fetch_renderer',AsyncMock(return_value={'assets':[{'id':'replacement','kind':'video','duration_sec':3,'tags':{'en':['Close up']}}]})):
+        with patch('services.vea.store.fetch_renderer',AsyncMock(return_value={'assets':[catalog_asset(self.org)]})):
             replaced=self.run_async(vea.swap(self.org,v['id'],1,'scene-0-cut-0','replacement','swap'))
             replay=self.run_async(vea.swap(self.org,v['id'],1,'scene-0-cut-0','replacement','swap'))
         self.assertEqual(replaced,replay)
@@ -85,7 +86,7 @@ class VeaPostgresTests(unittest.TestCase):
         with self.assertRaises(WorkflowConflict):
             self.run_async(self.repo.transition_draft(self.org,old['id'],'approve',old['revision'],'approve-old'))
 
-    def test_irrelevant_swap_preserves_approved_export_and_sql_state(self):
+    def test_ineligible_swap_preserves_approved_export_and_sql_state(self):
         c=self.approved();vea=VeaStore(self.repo)
         job=self.run_async(prepare_build(self.run_async(self.store.claim('build'))[0],self.store))
         variant=self.run_async(vea.list_variants(self.org))[0]
@@ -104,7 +105,7 @@ class VeaPostgresTests(unittest.TestCase):
         before=snapshot()
         self.assertEqual(draft['status'],'APPROVED')
         with patch('services.vea.store.fetch_renderer',AsyncMock(return_value={'assets':[
-                {'id':'replacement','kind':'video','duration_sec':10,'tags':{'en':['Mountain landscape']}}]})):
+                catalog_asset(self.org, rights_confirmed=False, tags={'en':['Mountain landscape']})]})):
             with self.assertRaises(WorkflowConflict):
                 self.run_async(vea.swap(self.org,variant['id'],1,'scene-0-cut-0','replacement','irrelevant'))
         self.assertEqual(snapshot(),before)

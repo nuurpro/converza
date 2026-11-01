@@ -119,7 +119,7 @@ def bootstrap_journey(dsn):
         cursor.execute("SELECT to_regclass('sleyz_inbound')")
         if not cursor.fetchone()[0]:
             cursor.execute((migrations / '007_sleyz_inbound.sql').read_text(encoding='utf-8'))
-        for name in ('008_milo_campaigns.sql', '009_vea_variants.sql', '010_consolidation.sql'):
+        for name in ('008_milo_campaigns.sql', '009_vea_variants.sql', '010_consolidation.sql', '012_pending_feed.sql', '013_milo_scope.sql'):
             cursor.execute((migrations / name).read_text(encoding='utf-8'))
         cursor.execute('''ALTER TABLE brand_passports ADD COLUMN IF NOT EXISTS tone text,
             ADD COLUMN IF NOT EXISTS target_audience text, ADD COLUMN IF NOT EXISTS hex_colors text[]''')

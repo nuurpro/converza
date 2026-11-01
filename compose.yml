@@ -52,7 +52,7 @@ services:
     build:
       context: Vea/services/MoneyPrinterTurbo
       dockerfile: Dockerfile.milo
-    image: converza/approved-renderer:consolidation
+    image: converza/approved-renderer:1.3.9-converza
     env_file: core/.env
     environment:
       MPT_APPROVED_ONLY: "1"
@@ -72,6 +72,7 @@ services:
     env_file: Web/.env.local
     environment:
       BACKEND_URL: http://api:8000
+      WEB_PUBLIC_ORIGIN: ${WEB_PUBLIC_ORIGIN:-http://127.0.0.1:3000}
     ports: ["127.0.0.1:3000:3000"]
     depends_on:
       api:
