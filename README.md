@@ -28,8 +28,10 @@ Agent identities live only in `Milo/identity.md`, `Sleyz/identity.md`, and
    Supabase URL and anon key are public; service-role/model/channel keys stay
    server-side. Native Python services load `core/.env`, regardless of cwd;
    existing process variables take precedence.
-3. Review and apply migrations `001` through `013` in order in the target
+3. Review and apply migrations `001` through `014` in order in the target
    Supabase project. This repository never applies production migrations at startup.
+   Pre-workflow legacy databases require the backed-up compatibility procedure
+   in `core/compatibility/README.md` first; do not cast legacy tenant keys blindly.
 4. Provision local service credentials and persistent storage:
 
 ```powershell

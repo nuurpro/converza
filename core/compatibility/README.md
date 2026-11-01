@@ -1,7 +1,7 @@
 # Legacy Workspace Bridge
 
 This optional bridge is for the inspected pre-workflow production schema, not
-for a database already using migrations 004-013. It is not a new membership
+for a database already using migrations 004-014. It is not a new membership
 system and does not claim ownerless passports.
 
 ## Evidence And Preconditions
@@ -53,10 +53,14 @@ system and does not claim ownerless passports.
    changed or fabricated root audit fails closed. Do not commit private values
    or put generated tenant IDs into the versioned SQL. The two roots remain
    unchanged and gain no new authenticated owner links.
-6. Apply the bridge and migrations 001-013 as **one atomic maintenance
+6. Apply the bridge and migrations 001-014 as **one atomic maintenance
    migration**. Existing 001-003 tables/columns/policies are idempotent. Preserve
    this exact SQL bundle and its checksum privately. Do not deploy a partially
    applied chain. No memory backfill, workers or customer sends are part of DDL.
+   Migration 014 explicitly removes direct `anon`/`authenticated` EXECUTE grants
+   left by Supabase defaults; revoking PUBLIC alone is insufficient. The first
+   production rollout applied the atomic 001-013 bundle, then 014 before starting
+   the application, and verified zero browser-executable agent/workflow RPCs.
 7. Reconcile all original IDs/content/owner links and table counts against the
    snapshot. Expected changes are canonical tenant references and draft status
    spelling (`pending` -> `AWAITING_HITL`, others uppercase); original delivery

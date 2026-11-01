@@ -1,4 +1,4 @@
-param([switch]$Journey)
+param([switch]$Journey, [switch]$Renderer)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
@@ -36,3 +36,6 @@ Check-Exit
 npm run build
 Check-Exit
 Set-Location $root
+if ($Renderer) {
+    & "$PSScriptRoot/verify_renderer.ps1"
+}

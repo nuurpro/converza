@@ -1,25 +1,30 @@
 # Workspace, Feed, And Renderer Upgrade
 
 Source changes and isolated verification are implemented.
-**Renderer rollout is complete; core/frontend rollout is gated on production SQL.**
+**Renderer and joint core/frontend rollout are complete.**
 The user approved the full 100.23 MB snapshot and local renderer cutover. The
 canonical renderer on port 8080 now uses the verified v1.3.9 image. All 112 stored
 files match the private snapshot after restart, and existing previews work.
-SQL administration is now connected through the Primary Supabase connection.
-Direct SQL inspection found that the live project also lacks prerequisite
-workflow/memory/Sleyz/Milo/Vea tables and RPCs, not only migrations 011-013.
-Five existing passports reference missing organization rows; four use legacy
-non-UUID tenant keys, and four have no authenticated owner link. Core/frontend
-remain on their previous images until the verified compatibility rollout.
+SQL administration connected through the user-selected Primary connection.
+Direct SQL inspection found missing prerequisite workflow/memory/Sleyz/Milo/Vea
+tables/RPCs, not only 011-013. With explicit expanded authorization, the legacy
+bridge and 001-013 were applied atomically as migration `20261101161357`.
+Migration `20261101161726` then applied 014 to remove Supabase's direct browser
+role grants from workflow functions before the application was restarted.
+All five passports now reference valid orgs. Four remain ownerless, as explicitly
+approved; their ownership was never guessed. The existing owned/completed
+passport restores its saved answers and workspace through the deployed server.
 `core/compatibility/legacy_workspace.sql` preserves exact legacy tenant joins in
 a private mapping, creates missing org rows, keeps existing UUIDs and owner
 links, and converts the five active tenant columns. It never guesses owners,
 deletes records, schedules delivery or modifies the unused legacy billing tables.
-The private snapshot and compatibility rollout require maintenance quiescence.
-The two child-only UUID keys with existing canonical orgs require an explicit
-snapshot-bound root audit; overlapping passports always fail closed. Expanded
-production maintenance confirmation is pending. No affected rows were changed.
-No production Supabase migration, paid inference or customer send was performed.
+The quiescent private snapshot verified all 104 original records against two
+reads and independent SQL counts. Post-migration reconciliation found zero
+unexpected field changes. The two existing child-only UUID roots were preserved
+through a snapshot-bound audit; passport-bearing overlaps fail closed.
+Core/frontend are running their verified images on 8000/3000. Ingress and
+Telegram manager are restored on 8001/8002. Worker profiles remain disabled.
+No paid inference, production backfill or customer send was performed.
 
 ## Source Changes
 
@@ -55,16 +60,20 @@ Do not run the bridge against a database already using the workflow schema.
    and partial indexes. Does not merge approval mutation state machines.
 3. `core/migrations/013_milo_scope.sql`: validates catalog selection under the
    campaign transaction, retains selected scope and idempotent request identity.
+4. `core/migrations/014_workflow_rpc_privileges.sql`: closes direct Supabase
+   default EXECUTE grants to browser roles. Actual post-migration SQL confirms
+   zero anon/authenticated-executable agent/workflow functions.
 
 No redundant initiative column, membership table or data-deleting migration was
-added. The local tests apply migrations only in disposable loopback databases.
+added. Automated tests apply migrations only in disposable loopback databases;
+the separately authorized production operations are recorded above.
 Do not deploy the new dashboard against a core/schema missing migration 012.
 Do not enable workers to discover missing migrations through live jobs.
 
 The metadata preflight now verifies prerequisite RPCs, required tables/columns
 and UUID tenant formats as well as the new upgrade RPCs. It is not a substitute
-for SQL body/ownership checks. The bridge has ten real-PostgreSQL regressions,
-including the entire 001-013 chain, historical preservation and shared ingress;
+for SQL body/ownership checks. The bridge has eleven real-PostgreSQL regressions,
+including the entire 001-014 chain, historical preservation and shared ingress;
 snapshot safety has six regressions. Legacy Telegram-only NOT NULL fields are
 relaxed so Instagram/shared ingress does not fail before drafting.
 Maintenance and recovery steps are in `core/compatibility/README.md`.
@@ -74,14 +83,19 @@ Security advisors also flag four pre-existing public tables with RLS disabled:
 `org_model_settings`. They are unused by this runtime and unchanged by the
 bridge. This remains a separate security concern, not clean security acceptance.
 Reference: https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public.
+The legacy `deduct_credit`/`refund_credit` definer functions also remain callable
+by browser roles. They are outside the current core/approved renderer and were
+not enabled or changed by this rollout. These need a separate legacy billing
+hardening decision; this report does not claim the entire Supabase project has
+clean security advisories. New agent/workflow RPC browser access is verified zero.
 
 ## Verified Evidence
 
-- Latest complete core run: **461 passed, zero failures/errors/skips**, with
+- Latest complete core run: **462 passed, zero failures/errors/skips**, with
   workflow, memory, pending-feed SQL and real-media journey enabled. Evidence:
   `reports/local/core-tests.json` and `core-tests.log`.
 - Real journey report:
-  `C:/Users/ACER/AppData/Local/Temp/converza-journey/87eb51ce1f9c481981ea98ec8591bdec/report.json`.
+  `C:/Users/ACER/AppData/Local/Temp/converza-journey/3404113ff6a442d791376b3053fedce6/report.json`.
   It traversed signed fixture DM, Sleyz draft, human edit, controlled receipt,
   learned correction, Milo campaign/script approval, actual FFmpeg video,
   durable bound receipt, preview and final human approval.
@@ -91,9 +105,13 @@ Reference: https://supabase.com/docs/guides/database/database-linter?lint=0013_r
   one skipped duplicate Docker-exec journey (454 discovered). The host lane ran that journey
   successfully, so no SQL/media gate is being replaced by this skip. Evidence:
   `reports/local/core-image/core-tests.json` and `core-tests.log`.
-- Renderer candidate: **68 focused tests**, zero skips, including real media,
+- Final immutable renderer image: **68 supported-manifest tests**, zero skips, including real media,
   off-tag/cross-initiative landscape crops, bindings, authentication and receipts.
   Details/provenance: `Vea/services/MoneyPrinterTurbo/UPGRADE.v1.3.9.md`.
+  Fresh network-disabled evidence: `reports/local/renderer-tests.json` and
+  `renderer-tests.log`. The reusable runner mounts evaluation scripts as well
+  as tests; an initial missing-script-mount harness failure is retained separately
+  as `renderer-tests.missing-script-mount.*`, not disguised as a passing test.
 - Actual Docker-origin smoke: configured public origin reaches authentication
   (401 without credentials); forged origin returns 403. New core image starts
   and serves health. No live-provider request is part of either smoke.
@@ -106,6 +124,37 @@ Reference: https://supabase.com/docs/guides/database/database-linter?lint=0013_r
   `reports/local/upgrade-desktop.png`, `upgrade-mobile.png` and
   `upgrade-mobile-feed.png`. Mobile document width was 390, with no horizontal
   overflow. Existing visual design was preserved.
+- Deployed-stack smoke checks pass: health/page 200; legitimate public origin
+  reaches authentication (401 without a session), forged origin 403, protected
+  feed 401 and internal routes 403. The actual completed passport is restored by
+  the deployed server without changing data or impersonating a user session.
+  The live pending snapshot returns six existing reviews across seven orgs.
+- Actual deployed sign-in screenshots are `reports/local/deployed-upgrade-desktop.png`
+  and `deployed-upgrade-mobile.png`. The mobile document width equals its 390px
+  viewport. No real credentials were entered in these browser checks; full
+  authenticated/account-switch flows use the controlled QA accounts above.
+- Current application images are core
+  `sha256:2a54136c9c3c7003dd11d7899a0098e878aec38792a20ab053ffee69b0a4e46e`
+  and frontend `sha256:c3c27357fb2889aa760f97c7e575b6cae0bb14de61c7e279b34ecba947a97300`.
+  `reports/local/workspace-rollout.json` records all five running services,
+  passing health/origin/auth checks and zero sampled runtime error entries.
+
+## Requirement Evidence
+
+| Requirement | Direct Evidence |
+| --- | --- |
+| Auth/workspace restoration and transactional creation | `test_workspace_postgres.py`, `test_workspace_restore.py`, frontend auth/origin/session regressions; controlled completed-account/direct-onboarding/cache/account-switch browser checks; actual deployed owned/completed passport restores its original answers/org |
+| One chronological feed with independent approval mutations | `test_pending_feed.py`, `test_pending_feed_postgres.py`, frontend feed refresh/reconnect tests; production `pending_approval_feed` returns six preserved reviews; existing workflow/Milo mutation regressions cover CAS/idempotency |
+| Whole qualified facts and exact citations | `test_memory_claim_units.py`, `test_memory_sleyz_safety.py`, 12 qualification fixtures and 341 safety evaluations; omitted clauses cannot retain authoritative quotes/citations |
+| Transactional canonical product/initiative scope | `test_milo_consolidation_postgres.py`, `test_milo_scope_postgres.py`, `test_milo_scope_validation.py`, Vea selection tests and multilingual offline evaluations; missing assigned footage fails rather than using unrelated assets |
+| Authenticated manual override parity and fresh review | `test_vea_override_policy.py`, `test_vea_postgres.py`, renderer override/media tests; real landscape center crop, preserved failed exports and successful approval invalidation |
+| Exact renderer vendor upgrade and retained state | `UPSTREAM.json`, hash-pinned lock/Docker source, three-way upgrade report; immutable deployed image, 112 matching files, zero altered historical receipts, old preview byte hashes and private-path/auth checks |
+| Integrated verification without live sends/provider spending | `reports/local/core-tests.json` (462/462), all fixture evaluations, frontend 93/93/typecheck/build, real-FFmpeg journey; fixture auth/models/channels/narration are explicitly separate from live acceptance |
+| Actual rollout and recovery | Supabase migration receipts `20261101161357` and `20261101161726`; private 104-record reconciliation, ACL/migration/config/image backups; production schema readiness, zero browser-executable agent RPCs and `reports/local/workspace-rollout.json` health/origin/auth gates |
+
+Unprovisioned real voices/ASR weights/rights-cleared tenant catalogs and real
+provider/channel acceptance remain outside this fixture-based rollout. Four
+ownerless legacy passports remain deliberately unclaimed, as authorized.
 
 Models, auth, channel responses, narration and alignment in these tests are
 controlled fixtures. FFmpeg, SQL transactions, application routes and receipt
@@ -124,8 +173,13 @@ $env:MEMORY_TEST_DSN='host=127.0.0.1 port=55441 user=postgres password=converza-
 $env:CONVERZA_FEED_TEST_DSN='host=127.0.0.1 port=55441 user=postgres password=converza-test-only dbname=test_converza_feed'
 $env:CONVERZA_JOURNEY_TEST_DSN='host=127.0.0.1 port=55441 user=postgres password=converza-test-only dbname=test_converza_journey'
 $env:CONVERZA_JOURNEY_RENDERER_CONTAINER='converza-vea-v139-verified'
-./scripts/verify.ps1 -Journey
+$env:CONVERZA_LEGACY_TEST_DSN='host=127.0.0.1 port=55441 user=postgres password=converza-test-only dbname=test_converza_legacy_upgrade'
+./scripts/verify.ps1 -Journey -Renderer
 ```
+
+This combined command was executed successfully against the final tree: core
+462/462, all offline evaluations, frontend 93/93 plus typecheck/audit/build,
+real-FFmpeg journey and supported renderer 68/68, with no skipped required gates.
 
 Final candidate `converza-vea-v139-verified` listens only on 127.0.0.1:8090 and
 uses its own volume, never canonical storage. The image is
@@ -154,15 +208,25 @@ The existing SQLite database contained **zero durable receipt rows**. Its digest
 and integrity remain unchanged; no historical receipts were invented. Real
 durable receipt creation/reconciliation is separately covered by the journey.
 
-Remaining application gate: authorize/apply production migrations 011-013,
-verify ownership links, then deploy core/frontend together. No production
-backfill is implicit. Check readiness first:
+Completed application gates: privately backed up the six affected tables and
+runtime/schema configuration; applied the audited bridge plus 001-014;
+reconciled all 104 original records; verified authoritative ownership and
+service-only RPC grants; deployed core/frontend together; restored ingress and
+Telegram manager without starting workers. Readiness now returns `ready: true`:
 
 ```powershell
 python scripts/check_upgrade_schema.py --require-ready
 ```
 
 Never enable workers to discover missing schema or assets through real jobs.
+
+Application recovery is at
+`E:/Coding/_Converza_recovery/workspace-rollout-20261101-primary`.
+It includes private pre/post rows, verified counts, schema/configuration,
+reconciliation, exact applied SQL and manifests. Old images are retained as
+`converza-api:rollback-workspace-20261101` and
+`converza-web:rollback-workspace-20261101`. Do not restore old rows over newly
+accepted work or reverse tenant mappings without a verified maintenance plan.
 
 Source rollback backup:
 `E:/Coding/_Converza_recovery/renderer-upgrade-20261031-014806` contains the full
@@ -182,7 +246,7 @@ docker compose --env-file web/.env.local -f compose.yml -f E:/Coding/_Converza_r
 Before any later filesystem rollback, quiesce producers and preserve the then-current
 state as another private snapshot so newer receipts/media cannot be discarded.
 
-Once the migration/cutover gates are satisfied, the joint application command is:
+For a later joint application rebuild, use:
 
 ```powershell
 docker compose --env-file web/.env.local up -d --build api web

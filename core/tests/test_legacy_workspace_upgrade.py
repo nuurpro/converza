@@ -188,3 +188,13 @@ class LegacyWorkspaceUpgradeTests(unittest.TestCase):
         self.q.execute("INSERT INTO brand_passports(org_id,brand_name,owner_user_id) VALUES(%s,'Unverified attachment',%s)",(self.agent_org,self.owner))
         with self.assertRaisesRegex(Exception,'overlaps existing canonical workspace'):
             self.bridge()
+
+    def test_workflow_functions_are_private_with_supabase_default_grants(self):
+        self.q.execute('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon,authenticated')
+        self.bridge()
+        for path in sorted((ROOT/'migrations').glob('*.sql')):
+            self.q.execute(path.read_text(encoding='utf-8'))
+        self.q.execute("SELECT proname FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname LIKE 'workflow_%' AND (has_function_privilege('anon',oid,'EXECUTE') OR has_function_privilege('authenticated',oid,'EXECUTE'))")
+        self.assertEqual(self.q.fetchall(),[])
+        self.q.execute("SELECT has_function_privilege('service_role','workflow_snapshot(uuid)','EXECUTE')")
+        self.assertTrue(self.q.fetchone()[0])

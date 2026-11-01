@@ -47,7 +47,8 @@ They enter the immutable config hash and survive subsequent swaps/retries.
 A flag in an old manifest cannot grant manual permission. Core validates the
 rendered manual choices against the bound job before creating an approval draft.
 Success supersedes old approval; invalid swaps do not mutate the variant, job,
-receipt, draft or export. No migration 014 is required.
+receipt, draft or export. No additional variant-schema column is required.
+Core migration 014 separately closes Supabase default workflow RPC grants.
 
 ## Verified Candidate
 
@@ -106,9 +107,10 @@ claimed or fabricated. The real-media journey separately verifies new receipts.
 
 Private rollback snapshot: `E:/Coding/_Converza_recovery/renderer-cutover-20261101-121800`.
 Old image tag: `converza/approved-renderer:rollback-pre-v139-20261101`.
-Configuration/key identity was preserved. No volume was deleted. No production
-SQL migration, paid call or customer send occurred. Core/frontend rollout is
-still gated on separately authorized migrations 011-013. See
+Configuration/key identity was preserved. No volume was deleted. The renderer
+cutover itself did not run production SQL. The separately authorized core/frontend
+rollout has since applied the legacy bridge plus migrations 001-014 and deployed
+both services. No paid call or customer send was part of verification. See
 `docs/WORKSPACE_RENDERER_UPGRADE.md` at the repository root for evidence and rollback.
 
 For a later upgrade, preserve the same gates:
