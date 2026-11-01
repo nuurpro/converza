@@ -61,6 +61,10 @@ Do not enable workers to discover missing migrations through live jobs.
   durable bound receipt, preview and final human approval.
 - Latest frontend run: **93 passing tests**, passing TypeScript and a successful
   final-tree production build with the initiative picker and auth-form changes.
+- Final Python 3.12 core-image lane: **441 passed**, zero failures/errors, with
+  one skipped duplicate Docker-exec journey. The host lane ran that journey
+  successfully, so no SQL/media gate is being replaced by this skip. Evidence:
+  `reports/local/core-image/core-tests.json` and `core-tests.log`.
 - Renderer candidate: **68 focused tests**, zero skips, including real media,
   off-tag/cross-initiative landscape crops, bindings, authentication and receipts.
   Details/provenance: `Vea/services/MoneyPrinterTurbo/UPGRADE.v1.3.9.md`.
