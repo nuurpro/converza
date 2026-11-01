@@ -5,11 +5,20 @@ Source changes and isolated verification are implemented.
 The user approved the full 100.23 MB snapshot and local renderer cutover. The
 canonical renderer on port 8080 now uses the verified v1.3.9 image. All 112 stored
 files match the private snapshot after restart, and existing previews work.
-The configured Supabase project's read-only schema metadata confirms 011-013
-are missing. Core/frontend remain on their previous images to avoid a partial,
-schema-incompatible deployment. SQL administration is not connected in this
-session; the Supabase integration or a separately configured SQL connection is
-needed to execute authorized migrations, otherwise use the SQL editor manually.
+SQL administration is now connected through the Primary Supabase connection.
+Direct SQL inspection found that the live project also lacks prerequisite
+workflow/memory/Sleyz/Milo/Vea tables and RPCs, not only migrations 011-013.
+Five existing passports reference missing organization rows; four use legacy
+non-UUID tenant keys, and four have no authenticated owner link. Core/frontend
+remain on their previous images until the verified compatibility rollout.
+`core/compatibility/legacy_workspace.sql` preserves exact legacy tenant joins in
+a private mapping, creates missing org rows, keeps existing UUIDs and owner
+links, and converts the five active tenant columns. It never guesses owners,
+deletes records, schedules delivery or modifies the unused legacy billing tables.
+The private snapshot and compatibility rollout require maintenance quiescence.
+The two child-only UUID keys with existing canonical orgs require an explicit
+snapshot-bound root audit; overlapping passports always fail closed. Expanded
+production maintenance confirmation is pending. No affected rows were changed.
 No production Supabase migration, paid inference or customer send was performed.
 
 ## Source Changes
@@ -32,9 +41,12 @@ Legacy passports without an authoritative owner link are not claimed by name,
 email guesses or cached tenant IDs. An ownership error needs an operator repair
 using verified account records; refreshing must not manufacture a replacement.
 
-## Additive Database Changes
+## Database Rollout
 
-Review/apply these manually to production after the existing 001-010 schema:
+The inspected live project is older than the tested 001-010 schema. Before
+applying the following, take a verified private snapshot and run the optional
+legacy bridge plus the prerequisite migration chain in a maintenance window.
+Do not run the bridge against a database already using the workflow schema.
 
 1. `core/migrations/011_workspace_restore.sql`: service-only transactional
    onboarding RPC. Existing `orgs` requires `id`, `name`, `created_at`; the
@@ -44,25 +56,39 @@ Review/apply these manually to production after the existing 001-010 schema:
 3. `core/migrations/013_milo_scope.sql`: validates catalog selection under the
    campaign transaction, retains selected scope and idempotent request identity.
 
-No redundant initiative column, membership table or destructive migration was
+No redundant initiative column, membership table or data-deleting migration was
 added. The local tests apply migrations only in disposable loopback databases.
 Do not deploy the new dashboard against a core/schema missing migration 012.
 Do not enable workers to discover missing migrations through live jobs.
 
+The metadata preflight now verifies prerequisite RPCs, required tables/columns
+and UUID tenant formats as well as the new upgrade RPCs. It is not a substitute
+for SQL body/ownership checks. The bridge has ten real-PostgreSQL regressions,
+including the entire 001-013 chain, historical preservation and shared ingress;
+snapshot safety has six regressions. Legacy Telegram-only NOT NULL fields are
+relaxed so Instagram/shared ingress does not fail before drafting.
+Maintenance and recovery steps are in `core/compatibility/README.md`.
+
+Security advisors also flag four pre-existing public tables with RLS disabled:
+`access_requests`, `org_subscriptions`, `org_subscription_payments`, and
+`org_model_settings`. They are unused by this runtime and unchanged by the
+bridge. This remains a separate security concern, not clean security acceptance.
+Reference: https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public.
+
 ## Verified Evidence
 
-- Latest complete core run: **442 passed, zero failures/errors/skips**, with
+- Latest complete core run: **461 passed, zero failures/errors/skips**, with
   workflow, memory, pending-feed SQL and real-media journey enabled. Evidence:
   `reports/local/core-tests.json` and `core-tests.log`.
 - Real journey report:
-  `C:/Users/ACER/AppData/Local/Temp/converza-journey/1889ead3a3f0403898b36142945f163a/report.json`.
+  `C:/Users/ACER/AppData/Local/Temp/converza-journey/87eb51ce1f9c481981ea98ec8591bdec/report.json`.
   It traversed signed fixture DM, Sleyz draft, human edit, controlled receipt,
   learned correction, Milo campaign/script approval, actual FFmpeg video,
   durable bound receipt, preview and final human approval.
 - Latest frontend run: **93 passing tests**, passing TypeScript and a successful
   final-tree production build with the initiative picker and auth-form changes.
-- Final Python 3.12 core-image lane: **441 passed**, zero failures/errors, with
-  one skipped duplicate Docker-exec journey. The host lane ran that journey
+- Python 3.12 core-image lane before final audit guards: **453 passed**, zero failures/errors, with
+  one skipped duplicate Docker-exec journey (454 discovered). The host lane ran that journey
   successfully, so no SQL/media gate is being replaced by this skip. Evidence:
   `reports/local/core-image/core-tests.json` and `core-tests.log`.
 - Renderer candidate: **68 focused tests**, zero skips, including real media,

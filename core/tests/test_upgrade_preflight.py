@@ -9,15 +9,48 @@ spec.loader.exec_module(module)
 
 
 class UpgradePreflightTests(unittest.TestCase):
+    def complete_schema(self):
+        return {'paths': {'/rpc/' + name: {} for name in module.REQUIRED_RPCS},
+                'definitions': {table: {'properties': {
+                    column: ({'type': 'string', 'format': expected} if expected else {})
+                    for column, expected in columns.items()}}
+                    for table, columns in module.REQUIRED_TABLES.items()}}
+
     def test_every_required_function_and_base_column_is_needed(self):
-        schema={'paths':{'/rpc/'+name:{} for name in module.REQUIRED_RPCS},
-                'definitions':{'orgs':{'properties':{name:{} for name in ('id','name','created_at')}}}}
+        schema=self.complete_schema()
         self.assertTrue(module.assess(schema)['ready'])
         for name in module.REQUIRED_RPCS:
             removed=schema['paths'].pop('/rpc/'+name)
             self.assertFalse(module.assess(schema)['ready'])
             schema['paths']['/rpc/'+name]=removed
         del schema['definitions']['orgs']['properties']['name']
+        self.assertFalse(module.assess(schema)['ready'])
+
+    def test_new_rpc_names_alone_do_not_prove_prerequisites(self):
+        schema=self.complete_schema()
+        for table in module.REQUIRED_TABLES:
+            removed=schema['definitions'].pop(table)
+            self.assertFalse(module.assess(schema)['ready'], table)
+            schema['definitions'][table]=removed
+
+    def test_legacy_text_tenant_columns_fail_closed(self):
+        for table, columns in module.REQUIRED_TABLES.items():
+            for column, expected in columns.items():
+                if expected != 'uuid':
+                    continue
+                with self.subTest(table=table, column=column):
+                    schema=self.complete_schema()
+                    schema['definitions'][table]['properties'][column]={'type':'string'}
+                    report=module.assess(schema)
+                    self.assertFalse(report['ready'])
+                    self.assertFalse(report['required_tables'][table][column])
+
+    def test_message_history_is_required_independently_of_other_upgrade_tables(self):
+        schema=self.complete_schema()
+        schema['definitions'].pop('messages')
+        self.assertFalse(module.assess(schema)['ready'])
+        schema=self.complete_schema()
+        schema['definitions']['messages']['properties']['org_id']={'type':'string'}
         self.assertFalse(module.assess(schema)['ready'])
 
     def test_database_mismatch_is_rejected_before_network_access(self):

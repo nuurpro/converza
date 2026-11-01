@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     dsn = os.getenv('CONVERZA_WORKFLOW_TEST_DSN')
     memory_dsn = os.getenv('MEMORY_TEST_DSN')
-    for value in (dsn, memory_dsn, os.getenv('CONVERZA_FEED_TEST_DSN'), os.getenv('CONVERZA_JOURNEY_TEST_DSN')):
+    for value in (dsn, memory_dsn, os.getenv('CONVERZA_FEED_TEST_DSN'),
+                  os.getenv('CONVERZA_JOURNEY_TEST_DSN'), os.getenv('CONVERZA_LEGACY_TEST_DSN')):
         if not value:
             continue
         from psycopg2.extensions import parse_dsn
