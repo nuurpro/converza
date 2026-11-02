@@ -22,7 +22,7 @@ No alternate inference provider or model was used.
 
 ## Recorded runs
 
-- Scoped full backend suite: 504 tests passed, 24 optional integration tests skipped,
+- Scoped full backend suite: 504 tests total — 480 passed and 24 optional integration tests skipped,
   with a fresh disposable PostgreSQL database enabled. This includes the atomic
   narration sign-off and delayed-job regression gates.
 - Scoped frontend: 101 tests and type checking passed. Production Next build
