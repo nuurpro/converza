@@ -105,6 +105,7 @@ class BrandConfig(Contract):
     proof_points: list[ProofPoint] = Field(default_factory=list, max_length=100)
     banned_terms: list[str] = Field(default_factory=list, max_length=100)
     competitor_names: list[str] = Field(default_factory=list, max_length=100)
+    negative_visual_constraints: list[str] = Field(default_factory=list,max_length=100)
 
     @model_validator(mode='after')
     def unique_ids(self):

@@ -6,7 +6,7 @@ ENV PYTHONPATH=/MoneyPrinterTurbo \
     MPT_HOME=/MoneyPrinterTurbo \
     IMAGEIO_FFMPEG_EXE=/usr/bin/ffmpeg
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core \
+    && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core tesseract-ocr tesseract-ocr-eng tesseract-ocr-rus tesseract-ocr-uzb \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.milo.txt requirements.milo.lock ./
 RUN pip install --no-cache-dir --require-hashes -r requirements.milo.lock

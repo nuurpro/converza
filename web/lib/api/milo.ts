@@ -1,4 +1,5 @@
 import {authenticatedFetch} from '@/lib/api/session';
+import type {DirectorSnapshot,DirectorEditPreview} from '@/lib/data/director';
 import {scriptDecisionRequest,type MiloBrand,type MiloCampaign,type MiloJob,type MiloScene,type MiloSettings} from '@/lib/data/milo';
 export interface MiloSource {id:string;revision:number;kind:string;title:string;content:string;product_id?:string;}
 export async function miloRequest<T>(orgId:string,path:string,init?:RequestInit):Promise<T>{
@@ -15,6 +16,12 @@ export async function miloRequest<T>(orgId:string,path:string,init?:RequestInit)
  return body as T;
 }
 export const fetchMiloCampaigns=(orgId:string)=>miloRequest<{campaigns:MiloCampaign[]}>(orgId,'/campaigns');
+const directorPath=(campaignId:string)=>`/campaigns/${encodeURIComponent(campaignId)}/director`;
+export const fetchMiloDirector=(org:string,campaignId:string)=>miloRequest<DirectorSnapshot>(org,directorPath(campaignId));
+export const approveMiloDirectorNarration=(org:string,campaignId:string,revision:number,key:string)=>miloRequest<unknown>(org,`${directorPath(campaignId)}/storyboard/approve`,{method:'POST',headers:{'Idempotency-Key':key},body:JSON.stringify({expected_revision:revision})});
+export const recoverMiloDirector=(org:string,campaignId:string,runId:string,revision:number,key:string)=>miloRequest<unknown>(org,`${directorPath(campaignId)}/recover`,{method:'POST',headers:{'Idempotency-Key':key},body:JSON.stringify({run_id:runId,expected_revision:revision})});
+export const previewMiloDirectorEdit=(org:string,campaignId:string,directive:string,revision:number)=>miloRequest<DirectorEditPreview>(org,`${directorPath(campaignId)}/edits/preview`,{method:'POST',body:JSON.stringify({directive,expected_revision:revision})});
+export const applyMiloDirectorEdit=(org:string,campaignId:string,previewId:string,revision:number,key:string)=>miloRequest<unknown>(org,`${directorPath(campaignId)}/edits`,{method:'POST',headers:{'Idempotency-Key':key},body:JSON.stringify({preview_id:previewId,expected_revision:revision})});
 export const fetchMiloJobs=(orgId:string)=>miloRequest<{jobs:MiloJob[]}>(orgId,'/jobs');
 export const fetchMiloSettings=(orgId:string)=>miloRequest<MiloSettings>(orgId,'/settings');
 export const saveMiloSettings=(orgId:string,settings:MiloSettings)=>miloRequest<MiloSettings>(orgId,'/settings',{method:'PUT',body:JSON.stringify(settings)});

@@ -29,6 +29,7 @@ class DraftRow(TypedDict):
     resolved_at: NotRequired[str | None]
     sleyz_artifact: NotRequired[dict[str, Any] | None]
     vea_artifact: NotRequired[dict[str, Any] | None]
+    director_artifact: NotRequired[dict[str, Any] | None]
     simulated: NotRequired[bool]
     platform: NotRequired[Literal['telegram', 'instagram'] | None]
     inbound_id: NotRequired[str | None]

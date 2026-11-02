@@ -15,7 +15,7 @@ export interface MiloCampaign {
  result?:{video_url?:string;task_id?:string;draft_id?:string};build_result?:{video_url?:string};last_error?:string;created_at:string;
 }
 export interface MiloSettings {daily_enabled:boolean;daily_hour:number;timezone:string;spike_enabled:boolean;spike_threshold:number;window_days:number;cooldown_hours:number;}
-export interface MiloBrand {campaign_language:string;personas:MiloPersona[];proof_points:MiloProof[];banned_terms:string[];competitor_names:string[];}
+export interface MiloBrand {campaign_language:string;personas:MiloPersona[];proof_points:MiloProof[];banned_terms:string[];competitor_names:string[];negative_visual_constraints?:string[];}
 export interface MiloJob {id:string;campaign_id?:string;kind?:string;status:string;last_error?:string;payload?:{submission_state?:string;provider_task_id?:string;task_id?:string};}
 export interface ScriptEditor {revision:number;scenes:MiloScene[];dirty:boolean;}
 export function keepScriptEditor(editor:ScriptEditor|undefined,campaign:Pick<MiloCampaign,'revision'|'artifact'>):ScriptEditor {

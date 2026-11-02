@@ -9,11 +9,14 @@ class WorkflowConflict(ValueError):
 def apply_transition(draft, action, *, edited_content=None, receipt=None, error=None):
     """Pure state rules mirrored by workflow_transition in migration 005."""
     row = deepcopy(draft)
-    if row.get('vea_artifact'):
+    video_artifact=row.get('director_artifact') or row.get('vea_artifact')
+    if video_artifact:
         if action in ('edit', 'begin_delivery', 'claim_delivery', 'publish'):
             raise WorkflowConflict('Video artifacts support approval and export only; use Vea clip swapping for changes')
-        if action == 'approve' and (row.get('superseded_by') or row['vea_artifact'].get('superseded')):
+        if action == 'approve' and (row.get('superseded_by') or video_artifact.get('superseded')):
             raise WorkflowConflict('Superseded video cannot be approved; review the latest render')
+        if action=='approve' and row.get('director_artifact') and video_artifact.get('inspection',{}).get('passed') is not True:
+            raise WorkflowConflict('Director master has not passed automated inspection')
     status = row['status']
     now = datetime.now(timezone.utc).isoformat()
     if action == 'ready' and status == 'PENDING_DRAFT':
