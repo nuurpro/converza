@@ -92,3 +92,9 @@ Vea/services/MoneyPrinterTurbo/app/utils/subtitle_writer.py
 Vea/services/MoneyPrinterTurbo/test/services/test_vea_override_policy.py
 Vea/services/MoneyPrinterTurbo/scripts/upgrade_vendor.py
 Vea/services/MoneyPrinterTurbo/scripts/resolve_upgrade.py
+Vea/services/MoneyPrinterTurbo/app/services/director.py
+Vea/services/MoneyPrinterTurbo/app/controllers/v1/director.py
+Vea/services/MoneyPrinterTurbo/README.director.md
+Vea/services/MoneyPrinterTurbo/scripts/validate_director_local.py
+Vea/services/MoneyPrinterTurbo/scripts/record_alignment_reference.ps1
+Vea/services/MoneyPrinterTurbo/test/services/test_director_provider.py

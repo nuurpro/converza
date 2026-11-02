@@ -1,6 +1,7 @@
 export interface VeaSegment {segment_id:string;asset_id:string;start_ms:number;end_ms:number;}
 export interface VeaManifest {segments:VeaSegment[];product_id?:string;language?:string;}
 export interface VeaVideoArtifact {
+ director_run_id?:string;inspection?:{passed:boolean;[key:string]:unknown};
  schema_version:1;id:string;variant_revision:number;video_url:string;thumbnail_url:string;duration_sec:number;preset_used:string;preset_version:number|string;preset_sha256:string;source_milo_script_id:string;approved_script_revision:number;composition_sha256:string;render_telemetry:Record<string,unknown>;composition_manifest?:VeaManifest;superseded?:boolean;
 }
 export interface VeaVariant {

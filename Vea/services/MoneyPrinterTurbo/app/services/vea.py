@@ -140,27 +140,61 @@ def align_words(approved_text, observed_words, duration_ms):
             'anchor_coverage': coverage, 'interpolated_token_indices': missing, 'duration_ms': duration_ms}
 
 
+def speech_regions(samples, sample_rate=16000):
+    """Measured PCM utterances, preserving short pauses and absolute offsets.
+
+    Only silence lasting at least 300ms partitions recognition. Twenty-ms
+    shoulders retain weak consonants without giving ASR long silence to absorb.
+    This preprocessing does not use approved text or reference annotations.
+    """
+    if not len(samples): return []
+    hop = max(1, round(sample_rate*.01))
+    peak = max(abs(float(value)) for value in samples)
+    threshold = max(.0001, peak*.005)
+    active = []
+    for start in range(0, len(samples), hop):
+        frame = samples[start:start+hop]
+        if math.sqrt(sum(float(value)**2 for value in frame)/len(frame)) >= threshold:
+            active.append(start)
+    if not active: return []
+    groups, first, last = [], active[0], active[0]
+    shoulder = round(sample_rate*.02)
+    for current in active[1:]:
+        if current-last-hop >= round(sample_rate*.3):
+            groups.append((max(0, first-shoulder), min(len(samples), last+hop+shoulder)))
+            first = current
+        last = current
+    groups.append((max(0, first-shoulder), min(len(samples), last+hop+shoulder)))
+    return groups
+
+
+def observe_audio_words(audio_path, language):
+    """Local actual ASR over physically measured speech, restoring PCM offsets."""
+    try:
+        from faster_whisper import WhisperModel
+        from faster_whisper.audio import decode_audio
+        model = WhisperModel(os.getenv('VEA_WHISPER_MODEL', 'small'), device=os.getenv('VEA_WHISPER_DEVICE', 'cpu'),
+                             compute_type=os.getenv('VEA_WHISPER_COMPUTE_TYPE', 'int8'), local_files_only=True)
+        samples = decode_audio(str(audio_path), sampling_rate=16000)
+        words = []
+        for left, right in speech_regions(samples):
+            segments, _ = model.transcribe(samples[left:right], language=language, word_timestamps=True, vad_filter=False)
+            for segment in segments:
+                for word in segment.words or []:
+                    words.append({'word': word.word.strip(), 'start_ms': round((left/16000 + word.start)*1000),
+                                  'end_ms': round(min(right/16000, left/16000 + word.end)*1000), 'probability': float(word.probability)})
+        return words
+    except (ImportError, OSError, ValueError, RuntimeError) as exc:
+        raise VeaError('alignment_unavailable', 'Provision the configured local Whisper model and faster-whisper; downloads during jobs are disabled') from exc
+
+
 def extract_word_timestamps(audio_path, approved_text, language, cache_dir):
     key = content_hash({'audio': file_hash(audio_path), 'text': approved_text,
                         'language': language, 'model': os.getenv('VEA_WHISPER_MODEL', 'small'),
-                        'alignment_version': 1})
+                        'alignment_version': 2})
     cached = Path(cache_dir) / (key + '.alignment.json')
     if cached.exists(): return json.loads(cached.read_text(encoding='utf-8'))
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as exc:
-        raise VeaError('alignment_unavailable', 'Install faster-whisper and provision VEA_WHISPER_MODEL') from exc
-    try:
-        model = WhisperModel(os.getenv('VEA_WHISPER_MODEL', 'small'), device=os.getenv('VEA_WHISPER_DEVICE', 'cpu'),
-                             compute_type=os.getenv('VEA_WHISPER_COMPUTE_TYPE', 'int8'), local_files_only=True)
-    except (OSError, ValueError, RuntimeError) as exc:
-        raise VeaError('alignment_unavailable', 'Provision the configured local Whisper model before rendering') from exc
-    try:
-        segments, _ = model.transcribe(str(audio_path), language=language, word_timestamps=True, vad_filter=False)
-        observed = [{'word': word.word, 'start_ms': round(word.start * 1000), 'end_ms': round(word.end * 1000)}
-                    for segment in segments for word in (segment.words or [])]
-    except (OSError, ValueError, RuntimeError, ImportError) as exc:
-        raise VeaError('alignment_unavailable', 'Whisper could not align this narration; verify the local model, language and audio') from exc
+    observed = observe_audio_words(audio_path, language)
     aligned = align_words(approved_text, observed, round(media_duration(audio_path) * 1000))
     atomic_json(cached, aligned)
     return aligned

@@ -398,13 +398,31 @@ export function HitlCard({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(card.content);
+  if(card.directorArtifact){
+    const master=card.directorArtifact,url=safeVideoUrl(master.video_url),thumbnail=safeVideoUrl(master.thumbnail_url),passed=master.inspection?.passed===true;
+    return <div className="mt-2 space-y-3 rounded-xl border border-border p-4 text-xs">
+      <h3 className="font-medium">Final master review</h3>
+      {passed&&<p className="rounded-lg bg-milo-dim p-3 font-medium">Milo recommends approval · automated checks passed</p>}
+      {url?<video controls preload="metadata" playsInline poster={thumbnail} src={url} className="max-h-[480px] w-full rounded-lg bg-black"/>:<p role="alert">Master video unavailable. Refresh before deciding.</p>}
+      {Number.isFinite(master.duration_sec)&&<p>{master.duration_sec}s · Vertical MP4</p>}
+      <details><summary className="cursor-pointer">Master inspection report</summary><pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify(master.inspection_report,null,2)}</pre></details>
+      <p className="text-text-muted">Review visual quality and Hook-to-CTA coherence before approving this master.</p>
+      {card.supersededBy||master.superseded||master.superseded_by?<p>Replaced by a new master revision. Review the replacement.</p>:<>
+        {card.status==='pending'&&<div className="flex flex-wrap gap-2"><button disabled={busy||!url||!passed} onClick={onApprove} className="rounded-full bg-black px-3 py-2 text-white disabled:opacity-50">Approve final master</button><button disabled={busy} onClick={onSkip} className="rounded-full border border-border px-3 py-2">Reject</button></div>}
+        {card.status==='approved'&&url&&<a href={url} download target="_blank" rel="noopener noreferrer" className="inline-block underline">Download approved MP4</a>}
+        {card.status==='rejected'&&<p>Master rejected</p>}
+        <a href="/agents/milo" className="block underline">Request storyboard edits in Milo</a>
+      </>}
+    </div>;
+  }
   if(card.veaArtifact)return <div className="mt-2 space-y-3 rounded-xl border border-border p-4 text-xs">
+    {card.veaArtifact.director_run_id&&card.veaArtifact.inspection?.passed===true&&<><p className="rounded-lg bg-milo-dim p-3 font-medium">Milo recommends approval · automated checks passed</p><details><summary className="cursor-pointer">Master inspection report</summary><pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify(card.veaArtifact.inspection,null,2)}</pre><p className="mt-2 text-text-muted">Review visual quality and Hook-to-CTA coherence before approving this master.</p></details></>}
     <VeaPreview artifact={card.veaArtifact}/>
     {card.supersededBy||card.veaArtifact.superseded?<p>Replaced by a new video revision. Review the replacement.</p>:<>
       {card.status==='pending'&&<div className="flex flex-wrap gap-2"><button disabled={busy||!safeVideoUrl(card.veaArtifact.video_url)} onClick={onApprove} className="rounded-full bg-black px-3 py-2 text-white disabled:opacity-50">Approve &amp; Export</button><button disabled={busy} onClick={onSkip} className="rounded-full border border-border px-3 py-2">Reject</button></div>}
       {card.status==='approved'&&<p>Approved for export · <a href={safeVideoUrl(card.veaArtifact.video_url)} download target="_blank" rel="noopener noreferrer" className="underline">Download MP4</a></p>}
       {card.status==='rejected'&&<p>Video rejected</p>}
-      <a href={`/agents/vea#video-${encodeURIComponent(card.veaArtifact.id)}`} className="inline-block underline">Review clips in Vea · Swap Clip &amp; Re-render</a>
+      {card.veaArtifact.director_run_id?<a href="/agents/milo" className="inline-block underline">Request storyboard edits in Milo</a>:<a href={`/agents/vea#video-${encodeURIComponent(card.veaArtifact.id)}`} className="inline-block underline">Review clips in Vea · Swap Clip &amp; Re-render</a>}
     </>}
   </div>;
   const resolved = card.status !== "pending" || !!card.supersededBy;

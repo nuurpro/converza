@@ -1,5 +1,6 @@
 import type {SleyzDraftArtifact} from './sleyz';
 import type {VeaVideoArtifact} from './vea';
+import type {DirectorArtifact} from './director';
 
 export type AgentId = 'milo' | 'sleyz' | 'vea';
 export interface WorkspaceAgent {
@@ -19,7 +20,7 @@ export interface HitlCardData {
   id: string; label: string; content: string; status: DraftStatus; revision?: number;
   deliveryStatus?: string; deliveryError?: string | null; generationError?: string | null;
   resolvedAt?: string | null; canResolve?: boolean; canDeliver?: boolean; canRefresh?: boolean;
-  artifact?: SleyzDraftArtifact | null; veaArtifact?: VeaVideoArtifact | null; simulated?: boolean;
+  artifact?: SleyzDraftArtifact | null; veaArtifact?: VeaVideoArtifact | null; directorArtifact?:DirectorArtifact|null; simulated?: boolean;
   supersededBy?: string | null; learningStatus?: string | null; learningError?: string | null;
 }
 export interface SquadMessageData {

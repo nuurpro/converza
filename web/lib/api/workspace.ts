@@ -214,6 +214,7 @@ export function mapSquadMessage(row: SquadMessageRow, draft?: DraftRow): SquadMe
           ...draftCapabilities(draft),
           artifact: draft.sleyz_artifact,
           veaArtifact: draft.vea_artifact,
+          directorArtifact: draft.director_artifact,
           simulated: draft.simulated,
           supersededBy: draft.superseded_by,
           learningStatus: draft.learning_status,

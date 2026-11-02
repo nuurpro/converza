@@ -38,6 +38,14 @@ class MiloWorker:
                 context={**context,'objections':[r for r in context['objections'] if r['id'] in reserved]}
             result=await generate_campaign(context,prompt=campaign['prompt'],trigger=campaign['trigger'],
                 language=campaign.get('language'),topic=campaign.get('topic'),product_id=campaign.get('product_id'),model=self.model)
+            from .director.runtime import enabled
+            if enabled() and result.get('artifact') and result['compliance']['passed']:
+                from .director.storyboard import decompose
+                from .director.documents import DirectorDocuments
+                selected_product=(result.get('selected_scope') or {}).get('product_id',campaign.get('product_id'))
+                board=await decompose(result['artifact'],context,product_id=selected_product,model=self.model)
+                await DirectorDocuments(self.repo).command(job['org_id'],campaign['id'],'initialize',
+                    board=board,campaign_revision=campaign['revision'],key='initial')
             row=await self.store.complete_generation(job,**result)
             logger.info('milo_campaign org=%s campaign=%s status=%s violations=%s',job['org_id'],row['id'],row['status'],len(result['compliance']['violations']))
             await self.repo.insert_squad_message(job['org_id'],'milo',
@@ -45,6 +53,11 @@ class MiloWorker:
                 ('Campaign blocked by brand compliance. Review the listed violations in the Milo workspace.' if row['status']=='blocked' else
                  'Campaign ready for review. Approve its video script in the Milo workspace to enqueue Vea.'))
         elif job['kind']=='build':
+            from .director.runtime import enabled,handoff_build
+            from .director.documents import DirectorDocuments
+            if enabled() and not job['payload'].get('variant_id') and job['payload'].get('submission_state')=='not_submitted' and await DirectorDocuments(self.repo).document(job['org_id'],job['campaign_id']):
+                await handoff_build(self.repo,job)
+                return
             from services.vea.store import prepare_build, enabled
             if job['payload'].get('variant_id') or job['payload'].get('vea_config') or enabled():
                 job = await prepare_build(job, self.store)
@@ -58,6 +71,10 @@ class MiloWorker:
 
     async def run_once(self,kind=None):
         count=0
+        from .director.runtime import enabled,start_pending,worker
+        if enabled() and kind is None:
+            await start_pending(self.repo)
+            count+=await worker(self.repo,self.model).run_once()
         for current in ([kind] if kind else ['extract','generate','build']):
             jobs=await self.store.claim(current,limit=1,lease_seconds=600)
             for job in jobs:

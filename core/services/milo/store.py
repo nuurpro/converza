@@ -304,8 +304,11 @@ class MiloStore:
                 if not checks.get('passed') or not checks.get('semantic_checked') or checks.get('checked_brand_revision') != c['artifact'].get('brand_revision') or c['missing_evidence']:
                     raise WorkflowConflict('Campaign requires compliance review')
                 self._check_evidence(org, c['artifact'])
+                from .director.documents import bind_initial_approval
+                storyboard_revision=bind_initial_approval(self.repo,org,c,expected_revision+1)
                 c.update(script_status='approved', build_status='queued', compliance=deepcopy(checks))
                 _job(self.state, org, 'build', dict(campaign_id=id, script_revision=expected_revision,
+                     director_storyboard_revision=storyboard_revision,
                      product_id=c.get('product_id'),
                      video_script=deepcopy(c['artifact']['video_script']), language=c['artifact'].get('language') or c.get('language') or 'en',
                      submission_state='not_submitted', provider_attempt=1), f'{id}:{expected_revision}', id)

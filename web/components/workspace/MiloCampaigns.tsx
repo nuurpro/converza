@@ -5,6 +5,7 @@ import {campaignCapabilities,keepScriptEditor,type MiloCampaign,type MiloJob,typ
 import {createMiloCampaign,decideMiloScript,fetchMiloCampaigns,fetchMiloJobs,fetchMiloSettings,retryMiloJob,reconcileMiloJob,saveMiloSettings} from '@/lib/api/milo';
 import {useMiloOrg} from '@/lib/hooks/useMiloOrg';
 import {memoryRequest,type ProductRecord} from '@/lib/api/memory';
+import {MiloDirector} from '@/components/workspace/MiloDirector';
 
 const input='mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-xs';
 const button='rounded-full border border-border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50';
@@ -62,7 +63,7 @@ function CampaignWorkspace({org}:{org:string}){
   {notice&&<p role="status" className="rounded-lg border border-border p-3 text-xs">{notice}</p>}
   {!loaded&&!error&&<p role="status" className="text-xs text-text-muted">Loading campaigns…</p>}
   {loaded&&campaigns.length===0&&<p className="text-xs text-text-muted">No campaigns yet. Generate one from current buyer evidence or enable an automatic trigger.</p>}
-  {campaigns.map(campaign=><CampaignCard key={campaign.id} campaign={campaign} busy={busy} onDecide={decide}/>)}
+  {campaigns.map(campaign=><div key={campaign.id} className="space-y-2"><CampaignCard campaign={campaign} busy={busy} onDecide={decide}/><MiloDirector org={org} campaignId={campaign.id} scriptStatus={campaign.script_status} onChanged={()=>void refresh()}/></div>)}
   {jobs.filter(job=>job.status==='failed'||job.status==='ambiguous').map(job=><JobRecovery key={job.id} job={job} busy={busy} onRetry={()=>perform(`retry:${job.id}`,key=>retryMiloJob(org,job.id,key),'Retry queued.')} onReconcile={taskId=>perform(`reconcile:${job.id}:${taskId}`,key=>reconcileMiloJob(org,job.id,taskId,key),'Original provider task linked. Vea is checking its status.')}/>)}
  </section>;
 }

@@ -44,7 +44,7 @@ def _decode(cursor, org):
 
 def _item(kind, row):
     if kind == 'workflow':
-        restrictions = dict(can_approve=True, can_edit=not bool(row.get('vea_artifact')),
+        restrictions = dict(can_approve=True, can_edit=not bool(row.get('vea_artifact') or row.get('director_artifact')),
                             can_reject=True, reasons=[])
         payload = {'draft': row}
     else:
@@ -80,7 +80,8 @@ class PendingFeedStore:
                 snapshot = after['snapshot'] if after else datetime.now(timezone.utc).isoformat()
                 rows = [_item('workflow', row) for row in self.repo.drafts
                         if row['org_id'] == org and row['status'] == 'AWAITING_HITL' and not row.get('superseded_by')
-                        and not (row.get('vea_artifact') or {}).get('superseded')]
+                        and not (row.get('vea_artifact') or {}).get('superseded')
+                        and not (row.get('director_artifact') or {}).get('superseded')]
                 campaigns = getattr(self.repo, '_milo_state', {}).get('campaigns', {})
                 rows += [_item('milo', row) for row in campaigns.values() if row['org_id'] == org
                          and row['script_status'] == 'pending' and row['status'] in ('awaiting_review', 'blocked', 'needs_evidence')]

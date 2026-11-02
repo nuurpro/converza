@@ -56,9 +56,14 @@ services:
     env_file: core/.env
     environment:
       MPT_APPROVED_ONLY: "1"
+      VEA_ASSET_ROOT: /MoneyPrinterTurbo/brand-assets
+      VEA_DIRECTOR_DB: /MoneyPrinterTurbo/storage/director/receipts.sqlite3
+      VEA_DIRECTOR_ROOT: /MoneyPrinterTurbo/storage/director/artifacts
     ports: ["127.0.0.1:8080:8080"]
     volumes:
       - vea-storage:/MoneyPrinterTurbo/storage
+      - ${VEA_ASSET_HOST_PATH:-./brand-assets}:/MoneyPrinterTurbo/brand-assets:ro
+      - ${VEA_MODEL_HOST_PATH:-./vea-models}:/MoneyPrinterTurbo/models:ro
       - ./deployment/renderer.toml:/MoneyPrinterTurbo/config.toml:ro
     restart: unless-stopped
   web:

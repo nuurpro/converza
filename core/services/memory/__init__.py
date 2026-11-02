@@ -312,7 +312,7 @@ class MemoryStore:
         if 'avoid_topics' in payload and 'negative_constraints' not in payload:
             payload['negative_constraints'] = payload['avoid_topics']
         allowed = {*IDENTITY_FIELDS, 'tone', 'voice_rules', 'negative_constraints', 'hex_colors', 'onboarding_answers',
-                   'campaign_language', 'personas', 'proof_points', 'banned_terms', 'competitor_names'}
+                   'campaign_language', 'personas', 'proof_points', 'banned_terms', 'competitor_names', 'negative_visual_constraints'}
         values = {k: v for k, v in payload.items() if k in allowed}
         existing = self._passport(org_id)
         if not existing:

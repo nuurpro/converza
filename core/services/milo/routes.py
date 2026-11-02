@@ -91,6 +91,18 @@ def create_milo_router(get_repo, authenticate, assert_owner):
                 checks=await review_compliance(candidate,current)
             if action=='approve' and not checks['passed']:
                 raise HTTPException(409,{'message':'Campaign needs revalidation or new evidence.','violations':checks['violations']})
+        if action=='approve' and row['revision']==body.expected_revision:
+            from .director.runtime import enabled
+            from .director.documents import DirectorDocuments
+            from .director.storyboard import decompose
+            docs=DirectorDocuments(repo)
+            document=await docs.document(org_id,campaign_id) if enabled() else None
+            if document:
+                board=document['storyboard'];approved=row['artifact']['video_script']
+                same=len(approved)==len(board['scenes']) and all(s['narration_chunk']==a['spoken_narration'] and s['overlay_text']['text']==a['on_screen_text'] for s,a in zip(board['scenes'],approved))
+                if not same:
+                    replacement=await decompose(row['artifact'],current,product_id=row.get('product_id'))
+                    await docs.command(org_id,campaign_id,'replace',expected_revision=board['revision'],board=replacement,campaign_revision=row['revision'],key='script-sync:'+idempotency_key)
         return await invoke(store.decide_script(org_id,campaign_id,action,body.expected_revision,idempotency_key,script=script,compliance=checks))
 
     @router.get('/settings')
@@ -154,4 +166,6 @@ def create_milo_router(get_repo, authenticate, assert_owner):
             raise HTTPException(422,'Provider receipt is unavailable or does not match this organization, job, and approved script.') from None
         return await invoke(store.reconcile_build(org_id,job_id,body.task_id,key=idempotency_key))
 
+    from .director.routes import register
+    register(router,scoped,authenticate)
     return router
